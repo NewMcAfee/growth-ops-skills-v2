@@ -1,0 +1,22 @@
+{
+  "_comentario": "Template de config (exemplo Sigo ERP). A skill gera feed-config.json na pasta do feed, ao lado de feed-download.ps1. Um objeto em targets[] por aba. Preferir 'gid' (R10: materializa fórmulas QUERY/IMPORTRANGE, que o gviz trunca) — obter via .../htmlview ou #gid= na URL da aba aberta. 'sheet' é só rótulo/log; sem 'gid', cai no fallback gviz por nome. 'mustContain' = coluna-âncora do header (validação). 'pii': true → o out vai pro .gitignore.",
+  "sheetId": "COLE_AQUI_O_ID_DA_PLANILHA",
+  "minBytes": 500,
+  "minLineRatio": 0.5,
+  "targets": [
+    {
+      "sheet": "bd_ads",
+      "gid": "57657577",
+      "out": "campanhas-completo.csv",
+      "mustContain": "investimento",
+      "pii": false
+    },
+    {
+      "sheet": "leads_pipeline",
+      "gid": "1055130169",
+      "out": "crm-completo.csv",
+      "mustContain": "deal_growthpack_id",
+      "pii": true
+    }
+  ]
+}

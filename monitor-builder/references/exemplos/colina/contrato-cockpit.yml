@@ -1,0 +1,141 @@
+# contrato-cockpit.yml — Grupo Colina (Colina dos Ipês)
+# NB: valores numéricos de metas/receita são FICTÍCIOS (sanitizados pra publicação).
+# Único lugar onde mora o que varia por cliente. Os blocos `metas` e `receita` são
+# lidos EM RUNTIME pelo gerador/renderer — trocar metas/quarter/valores = editar só
+# aqui, sem tocar no .py.
+#
+# MODELO HÍBRIDO (v2 · 2026-07-02): recorrência + one-time.
+#   · Planos (SP/RJ) = RECORRÊNCIA — aquisição do cliente dentro do CAC; valor do
+#     contrato = mensalidade × permanência (LTV premissa 18m da fundação).
+#   · Jazigo + Serviços = ONE-TIME — contrato entra na lógica de TCV (valor cheio
+#     mesmo parcelado).
+#   Funil de AQUISIÇÃO Lead › MQL › SQL › Ganho, recorte BU × canal.
+#   Fontes: investimento/tráfego = bd_ads · MQL/clientes/funil = CRM (flags).
+#   Retenção (lado direito da recorrência) DESLIGADA — sem dado de churn no feed.
+projeto: grupo-colina
+
+# --- Fontes do feed (CSVs em dados-fonte/) ---
+fontes:
+  campanhas: campanhas-ano-corrente.csv   # bd_ads — diário por anúncio (sem PII) → investimento + tráfego + drill
+  crm:       crm-ano-corrente.csv         # leads_pipeline — grão deal (PII → git-ignored) → funil + coorte + MQL da meta
+min_ano: 2026                              # descarta outliers de data pré-início
+
+# --- BU (linha de produto). Segmento PRIMÁRIO (requisito do operador) ---
+# No CRM: `origem` é a fonte PRIMÁRIA da BU; `funnel` é fallback quando origem vier
+# vazia (regra do operador 2026-07-02). No bd_ads só existe `funnel`.
+bu:
+  col: origem
+  col_fallback: funnel
+  ordem: ["Plano SP", "Jazigo", "Plano RJ", "Serviços"]   # BUs com meta (nesta ordem)
+  normaliza:                                                # variações da fonte → nome canônico
+    "Plano Funerário SP": "Plano SP"
+    "Plano Funerário RJ": "Plano RJ"
+    "Jazigo": "Jazigo"
+    "Jazigos": "Jazigo"
+    "Serviços Funerários": "Serviços"
+    "Serviço Funerário": "Serviços"
+  outros_label: "Outros"   # Institucional, Receptivo Zendesk, Concorrentes, vazio… (fora da meta)
+
+# --- Colunas do CSV de campanhas (bd_ads → conceito) ---
+campanhas_cols:
+  data: data
+  ad_id: ad_id
+  bu: funnel
+  canal: canal
+  investimento: investimento
+  mql: mql                 # MQL campanha-atribuído — usado só como CROSS-CHECK (fonte da meta = CRM)
+  win: win
+  lead: lead
+  sql: sql
+  impressoes: impressões
+  cliques: ad_clicks
+  campanha: nome_campanha
+  conjunto: nome_conjunto
+  anuncio: nome_anuncio
+
+# --- Mapeamento do funil no CRM (flags Lead › MQL › SQL › Ganho) ---
+# Volume via FLAG; timing via _at (regra A: _at é esparso). Coorte usa create_at × win_at.
+funil:
+  lead:    {flag: null, date: create_at}
+  mql:     {flag: mql,  date: mql_at}
+  sql:     {flag: sql,  date: sql_at}
+  ganho:   {flag: win,  date: win_at}
+  perdido: {flag: lost, date: lost_at, reason: lost_reason}
+crm_cols:
+  bu: origem            # primário; fallback funnel (ver bloco `bu`)
+  bu_fallback: funnel
+  canal: canal
+  ad_id: ad_id            # manual_* = lead sem campanha, canal conhecido pelo WhatsApp → conta pelo canal
+  create_at: create_at
+  win_at: win_at
+  total_value: total_value
+  gclid: gclid            # detectores canal×clickid divergente (lição Martins)
+  fbclid: fbclid
+
+# --- Canais (normalização + quais contam pra meta) ---
+# Atribuição: usa a coluna `canal` direto. ad_id `manual_*` NÃO tem campanha, mas o canal
+# é conhecido (msg WhatsApp) → continua contando pelo canal (não descartar).
+canais_meta: ["paid_meta", "paid_google"]   # "Máquina de Aquisição" — só pagos contam pro OKR
+
+# --- MÊS FISCAL do Colina (operador 2026-07-02) --------------------------------------
+# O mês do Colina vai do dia 16 ao dia 15 e é NOMEADO PELO MÊS EM QUE TERMINA:
+# "julho" = 16/jun a 15/jul. Metas mensais, série mensal, safras e payback usam
+# esse calendário. Presets "Este mês"/"Mês passado" idem.
+mes_fiscal:
+  dia_inicio: 16
+  nomeia_por: fim
+
+# --- Período de vigência (alimenta preset "Este trimestre" + fallback dmin/dmax) ---
+# O DEFAULT do filtro é "Este mês" (fiscal, no renderer); metas são MENSAIS (fiscais)
+# e escalam por dias. Q3 2026 = mesmos números mensais do Q2 rolados (operador 2026-07-02).
+periodo:
+  quarter_vigencia: "2026-Q3"
+  inicio: "2026-06-16"     # Q3 fiscal = jul+ago+set fiscais = 16/jun a 15/set
+  fim:    "2026-09-15"
+
+# --- METAS MENSAIS por BU (LIDO EM RUNTIME) -------------------------------------------
+# Bases: investimento, mql, clientes_safra (coorte do mês do lead), clientes_geral
+# (ganhos no mês do win). Derivados calculados no monitor: CPMQL = inv/mql ·
+# Taxa Conv = clientes_safra/mql · CAC (safra) = inv/clientes_safra · CAC (geral) =
+# inv/clientes_geral · metas de receita = clientes × valor de contrato (bloco receita).
+# Escalam por dias no range selecionado sobre o MÊS FISCAL (meta_dia = meta_mês /
+# dias_do_mês_fiscal 16→15).
+# Fonte: tabela do operador 2026-06-30 (Q2), rolada pro Q3 em 2026-07-02.
+metas:
+  base: mensal
+  por_bu:
+    "Plano SP": {investimento: 60000, mql: 1000, clientes_safra: 100, clientes_geral: 160}
+    "Jazigo":   {investimento: 8000,  mql: 40,   clientes_safra: 2,   clientes_geral: 3}
+    "Plano RJ": {investimento: 5000,  mql: 50,   clientes_safra: 3,   clientes_geral: 4}
+    "Serviços": {investimento: 4000,  mql: 80,   clientes_safra: 8,   clientes_geral: 9}
+  # Geral (soma): investimento 77000 · mql 1170 · clientes_safra 113 · clientes_geral 176
+
+# --- MODELO DE RECEITA (PREMISSA · LIDO EM RUNTIME) ------------------------------------
+# total_value está VAZIO em 100% dos ganhos do CRM (backfill growthpack pendente) →
+# receita é PREMISSA declarada, calculada por contagem de ganhos × valor de contrato.
+# Valores canônicos da fundação: 10-fundacao/instrumentation-plan.md §6.2 (2026-06).
+#   recorrente: valor_contrato = mensalidade × ltv_meses (LTV; MRR novo = ganhos × mensalidade)
+#   tcv:        valor_contrato = valor cheio do contrato (mesmo parcelado)
+# Quando o total_value real chegar no feed, trocar fonte: premissa → crm (e o monitor
+# passa a usar o dado real — os .py já leem este bloco em runtime).
+receita:
+  fonte: premissa
+  por_bu:
+    "Plano SP": {modelo: recorrente, mensalidade: 100, ltv_meses: 18}   # LTV R$ 1.800
+    "Plano RJ": {modelo: recorrente, mensalidade: 70,  ltv_meses: 18}   # LTV R$ 1.260
+    "Jazigo":   {modelo: tcv, valor: 7000}                              # TCV médio contrato
+    "Serviços": {modelo: tcv, valor: 9000}                              # ticket médio one-time
+
+# --- Payback (só mídia — decisão operador 2026-07-02, sem FEE/DRE de assessoria) ---
+# Safra = mês do win. Receita acumulada: recorrente = n × mensalidade × meses decorridos
+# (teto ltv_meses); tcv = valor cheio no M0. Payback = 1º mês em que acumulado ≥ invest.
+payback:
+  modo: midia
+
+# --- Retenção (desligada nesta versão) ---
+retencao:
+  ativa: false
+  motivo: "sem dado de churn/cancelamento no feed — ligar quando existir fonte"
+
+# --- Identidade visual (cockpit) ---
+tema: dark-colina           # dark + verde esmeralda (vida/Clube) + dourado ipê

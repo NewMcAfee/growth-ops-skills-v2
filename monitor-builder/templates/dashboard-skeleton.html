@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<!--
+  Template canônico - monitor-builder@1.0.0
+  Substitua os placeholders {{ ... }} com dados do manifest YAML
+-->
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{cliente}} — Dashboard {{plataforma}} ({{janela}}) · {{operador}}</title>
+  <meta name="description" content="Dashboard {{modo}} · {{plataforma}} · {{janela_label}}">
+  <meta name="source-snapshot" content="{{nome_md}}">
+  <meta name="source-manifest" content="{{nome_yml}}">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
+  <style>
+    /* DS V4 inline — copiar de references/html-skeleton-v4.md §"Estrutura completa" <style> */
+    /* {{INSERT_CSS_V4}} */
+  </style>
+</head>
+<body>
+
+  <div class="v4-top-bar"></div>
+
+  <div class="container">
+
+    <header class="page-header">
+      <div>
+        <div class="section-tag">{{section_tag}}</div>
+        <h1 class="display">{{titulo_l1}} <span class="accent">{{titulo_accent}}</span><br>{{titulo_l2}}</h1>
+        <p class="subtitle">{{subtitle}}</p>
+      </div>
+      <div class="logo-wrap">
+        <img src="{{logo_path_relativo}}"
+             alt="{{operador}}"
+             onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+        <div class="logo-fallback">{{operador_short}}</div>
+        <div class="logo-caption">{{operador}} · Growth IA Ops v2.0</div>
+      </div>
+    </header>
+
+    <!-- BANNER GOVERNANÇA — condicional (vide references/governance-banner.md) -->
+    {{#if banner_governanca}}
+    <div class="governance-banner" role="alert">
+      <div class="icon">{{banner_icon}}</div>
+      <div class="text">
+        <h3>{{banner_titulo}}</h3>
+        <p>{{banner_corpo}}</p>
+      </div>
+    </div>
+    {{/if}}
+
+    <section id="kpis">
+      <h2 class="section-title"><span class="num">§3</span>Meta-métricas · período inteiro</h2>
+      <p class="section-lead">{{periodo_dias}} dias agregados. {{kpis_lead}}</p>
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="label">Custo total</div>
+          <div class="value">R$ {{custo_inteiro}}<span class="unit">,{{custo_decimal}}</span></div>
+          <div class="delta">≈ <strong>R$ {{custo_diario}}/dia</strong> · R$ {{custo_mensal}}/mês extrapolado</div>
+        </div>
+        <div class="kpi-card">
+          <div class="label">Impressões</div>
+          <div class="value">{{impressoes}}</div>
+          <div class="delta">≈ <strong>{{impressoes_diario}}/dia</strong> · {{impressoes_obs}}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="label">Cliques</div>
+          <div class="value">{{cliques}}</div>
+          <div class="delta">CTR <strong>{{ctr}}%</strong> · CPC médio <strong>R$ {{cpc}}</strong></div>
+        </div>
+        <div class="kpi-card {{#if conv_zero}}alert{{/if}}">
+          <div class="label">Conversões</div>
+          <div class="value">{{conversoes}}</div>
+          <div class="delta">{{#if conv_zero}}<strong>Outcome cego completo</strong> · tracking ausente (vide B1){{else}}CPA <strong>R$ {{cpa}}</strong>{{/if}}</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="charts">
+      <h2 class="section-title"><span class="num">§4</span>Performance · visualizações</h2>
+      <p class="section-lead">{{charts_lead}}</p>
+
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-header">
+            <h3>{{chart1_titulo}}</h3>
+            <div class="chart-lead">{{chart1_lead}}</div>
+          </div>
+          <div class="chart-canvas-wrap"><canvas id="chart1"></canvas></div>
+        </div>
+
+        <div class="chart-card">
+          <div class="chart-header">
+            <h3>{{chart2_titulo}}</h3>
+            <div class="chart-lead">{{chart2_lead}}</div>
+          </div>
+          <div class="chart-canvas-wrap"><canvas id="chart2"></canvas></div>
+        </div>
+
+        <div class="chart-card span-2">
+          <div class="chart-header">
+            <h3>{{chart3_titulo}}</h3>
+            <div class="chart-lead">{{chart3_lead}}</div>
+          </div>
+          <div class="chart-canvas-wrap" style="min-height:340px"><canvas id="chart3"></canvas></div>
+        </div>
+
+        <div class="chart-card span-2">
+          <div class="chart-header">
+            <h3>{{chart4_titulo}}</h3>
+            <div class="chart-lead">{{chart4_lead}}</div>
+          </div>
+          <div class="chart-canvas-wrap" style="min-height:300px"><canvas id="chart4"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Insight block (citação do padrão crítico de §7 do .md) -->
+    <div class="insight-block">
+      <p class="quote">"{{insight_critico}}"</p>
+    </div>
+
+    <section id="tabela">
+      <h2 class="section-title"><span class="num">§6</span>Tabela completa</h2>
+      <p class="section-lead">{{tabela_lead}}</p>
+      <div class="table-wrap">
+        <table class="v4-table" id="tableMain">
+          <thead>
+            <tr>
+              {{#each tabela_cols}}<th class="{{class}}">{{nome}}</th>{{/each}}
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="bottlenecks">
+      <h2 class="section-title"><span class="num">§8</span>Bottlenecks</h2>
+      <p class="section-lead">{{#count bottlenecks}} bottlenecks identificados.</p>
+      <div class="bottleneck-grid">
+        {{#each bottlenecks}}
+        <div class="bottleneck-card {{severidade}}">
+          <div class="header-row">
+            <div class="id">{{id}}</div>
+            <div class="severity">{{severidade_label}}</div>
+          </div>
+          <h4>{{nome}}</h4>
+          <p>{{descricao}}</p>
+          <div class="meta">Handoff: <strong>{{handoff}}</strong>{{#if cross_link}} · Cross: <strong>{{cross_link}}</strong>{{/if}}</div>
+        </div>
+        {{/each}}
+      </div>
+    </section>
+
+    <section id="hipoteses">
+      <h2 class="section-title"><span class="num">§9</span>Hipóteses preliminares</h2>
+      <p class="section-lead">{{#count hipoteses}} hipóteses esboçadas pra formalizar quando newton oficial (F1-18) rodar.</p>
+      <div class="bottleneck-grid">
+        {{#each hipoteses}}
+        <div class="bottleneck-card {{confidence_class}}">
+          <div class="header-row"><div class="id">{{id}}</div><div class="severity">Conf. {{confidence}}</div></div>
+          <h4>{{nome_curto}}</h4>
+          <p>{{declaracao}}</p>
+          <div class="meta"><strong>Falsificação:</strong> {{falsificacao}}{{#if cross_link}} · Cross: <strong>{{cross_link}}</strong>{{/if}}</div>
+        </div>
+        {{/each}}
+      </div>
+    </section>
+
+    <footer class="page-footer">
+      <div class="meta-left">
+        <strong>Operador:</strong> {{operador_email}}<br>
+        <strong>Cliente:</strong> {{cliente}} · ticker <code>{{ticker}}</code><br>
+        <strong>Skill renderer:</strong> <code>monitor-builder@1.0.0</code><br>
+        <strong>Skill upstream:</strong> <code>{{skill_upstream}}</code><br>
+        <strong>Snapshot fonte:</strong> <code>{{nome_md}}</code> + <code>{{nome_yml}}</code><br>
+        <strong>Cross-links:</strong> {{#each cross_links}}<code>{{this}}</code>{{#unless @last}} · {{/unless}}{{/each}}<br>
+        <strong>Data:</strong> {{data}} · <strong>Janela do dado:</strong> {{janela_inicio}} → {{janela_fim}} ({{periodo_dias}} dias)
+      </div>
+      <div class="sig-block">
+        <div class="red">{{operador}}</div>
+        {{operador_tagline}}
+      </div>
+    </footer>
+
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script>
+    // {{INSERT_DATA_JS}}
+    // Dados inline extraídos do manifest YAML (estrutura conforme metricas_agregadas + performance_*)
+    const DATA = {{json data}};
+
+    // Render table dinâmico
+    function renderTable() {
+      const tbody = document.querySelector("#tableMain tbody");
+      // ... lógica conforme estrutura de DATA.tabela_rows
+    }
+    renderTable();
+
+    // Chart.defaults V4 (vide references/chartjs-v4-paleta.md §1)
+    // {{INSERT_CHART_DEFAULTS}}
+
+    // 4 charts canônicos (vide references/chartjs-v4-paleta.md §2)
+    // {{INSERT_CHART1}}
+    // {{INSERT_CHART2}}
+    // {{INSERT_CHART3}}
+    // {{INSERT_CHART4}}
+  </script>
+</body>
+</html>

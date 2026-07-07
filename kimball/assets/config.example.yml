@@ -1,0 +1,127 @@
+# config.example.yml — mapeamento de fontes -> schema canonico do kimball.
+# Preenchido no Passo 0 (perfilamento). Este exemplo espelha o caso IGA Blumenau
+# (HubSpot + Meta + Google) — troque nomes de arquivo/coluna pelo stack do seu cliente.
+# Nada aqui e hardcoded no motor: o motor le ISTO. CRM/plataforma-agnostico.
+
+paths:
+  raw_dir: "../_dados-brutos-planilha"   # onde estao os CSVs crus (relativo ao config)
+  out_dir: "."                            # onde gravar os datasets tratados
+
+identity:
+  region_default: BR        # regiao default p/ normalizar telefone sem DDI (E.164)
+  shared_phone_min: 3       # telefone ligado a >= N emails distintos = compartilhado (nao une)
+
+# ── FATOS DE MIDIA (grao alvo = ad × dia) ────────────────────────────────────
+media:
+  - name: meta
+    file: campanhas_meta.csv
+    number_locale: pt-BR
+    date_format: "%Y-%m-%d"
+    aggregate: false                      # ja no grao ad×dia
+    map:
+      date: Day
+      ad_id: "Ad ID"
+      campaign: "Campaign Name"
+      grupo: "Ad Set Name"
+      ad_name: "Ad Name"
+      spend: "Amount Spent"
+      impressions: "Impressions"
+      clicks: "Link Clicks"
+    extra_sum:                            # metricas aditivas extra, especificas do canal
+      msg_conversations: "Messaging Conversations Started"
+
+  - name: google_search
+    file: campanhas_google_search.csv
+    number_locale: pt-BR
+    date_format: "%Y-%m-%d"
+    aggregate: true                       # grao = search-term/dia -> agrega p/ ad×dia (nao-fan-out)
+    map:
+      date: Day
+      ad_id: "Ad ID"
+      campaign: "Campaign Name"
+      grupo: "Ad Group Name"
+      spend: "Cost (Spend)"
+      impressions: "Impressions"
+      clicks: "Clicks"
+
+  - name: google_pmax
+    file: campanhas_google_pmax.csv
+    number_locale: pt-BR
+    date_format: "%Y-%m-%d"
+    aggregate: false
+    map:
+      date: Day
+      ad_id: "Ad ID"
+      campaign: "Campaign Name"
+      spend: "Cost (Spend)"
+      impressions: "Impressions"
+      clicks: "Clicks"
+
+# ── LEAD SOURCE (a espinha; grao final = 1 lead unico) ───────────────────────
+leads:
+  file: todos_leads.csv
+  date_format: "%d-%m-%Y"
+  map:
+    date: DATA
+    nome: NOME
+    email: EMAIL
+    phone: TELEFONE
+  unslug_fields: [curso, ciente, finalidade, budget]   # valores de form com underscore
+  extra_map:
+    curso: "QUAL CURSO"
+    ciente: "CIENTE OFERTA"
+    finalidade: "FINALIDADE CURSO"
+    budget: "BUDGET"
+    camp_raw: "Campaign Name"
+
+# ── PLATFORM LEADS (opcional; recupera ad_id p/ o canal com form nativo) ──────
+platform_leads:
+  file: leads_meta.csv
+  channel: paid_meta
+  map:
+    email: email
+    phone: phone_number
+    ad_id: ad_id
+    campaign: campaign_name
+    created: created_time
+
+# ── CRM: contatos (contact_id) ───────────────────────────────────────────────
+crm_contacts:
+  file: contatos.csv
+  map:
+    contact_id: "ID do registro."
+    email: "E-mail"
+    phone: "Número de telefone"
+
+# ── CRM: deals (receita/stage; grao de deal) ─────────────────────────────────
+crm_deals:
+  file: deals.csv
+  number_locale: pt-BR
+  date_format: "%Y-%m-%d"
+  emit_hygienized: true                   # gera deals_higienizados.csv + deals_ganhos.csv
+  stage_fill_min: 0.5                      # abaixo disso a coluna de stage e "morta"
+  won_values: ["Venda Realizada"]         # NAO confie em flags booleanas mortas (ver QA)
+  lost_values: ["Venda Perdida"]
+  map:
+    deal_id: "ID do registro."
+    contact_id: "Associated Contact IDs"
+    valor: "Valor"
+    stage: "Etapa do negócio"
+    created: "Data de criação"
+
+# ── ATRIBUICAO (config-driven; recupera canal do lado SEM ad_id, ex: Google) ──
+# Precedencia: match em plataforma > UTM do CRM > nome de campanha no lead > default.
+# As regras de canal sao REGEX sobre nomes — declare o padrao de nomenclatura do SEU
+# cliente aqui (este exemplo usa o padrao V4). NADA disso e hardcoded no motor.
+attribution:
+  crm_utm:                          # onde estao os UTMs no deals (sinal de canal)
+    campaign: "UTM_Campaing "       # (atencao ao espaco final no header original)
+    source: "UTM_Source"
+    medium: "UTM_Medium"
+  channel_rules:                    # 1a regra que casar vence (ordem importa)
+    # USE ASPAS SIMPLES p/ regex: em aspas-duplas o YAML converte \b em BACKSPACE (footgun).
+    - {pattern: 'SEARCH|PMAX|GOOGLE|GDN', channel: paid_google}
+    - {pattern: '\bABO\b|\bCBO\b|\bADV\b|META|FACE|INSTA|\bIG\b|\bLKL\b|RMKT', channel: paid_meta}
+  paid_mediums: [cpc, paid, ppc]    # medium que indica pago quando nenhum regex casa
+  lead_name_fields: [camp_raw]      # campos de nome no lead p/ fallback de inferencia
+  default: indefinido

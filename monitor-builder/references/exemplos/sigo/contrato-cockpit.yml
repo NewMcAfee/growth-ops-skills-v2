@@ -1,0 +1,137 @@
+# contrato-cockpit.yml — Sigo ERP (exemplo de referência)
+# NB: valores numéricos de metas/financeiro são FICTÍCIOS (sanitizados pra publicação).
+# Único lugar onde mora o que varia por cliente. O gerador lê o bloco `metas`
+# EM RUNTIME (troca de quarter sem tocar código); os demais blocos guiam a
+# adaptação do gerador/renderer no Passo 1 da skill.
+projeto: sigo-erp
+
+# --- Fontes do feed (nomes dos CSVs em dados-fonte/) ---
+fontes:
+  campanhas: campanhas-completo.csv     # diário por anúncio (sem PII)
+  crm:       crm-completo.csv           # grão lead/deal (PII → git-ignored)
+  termos:    termos-google-completo.csv # OPCIONAL (snapshot Google Search; some se ausente)
+min_ano: 2024                            # descarta outliers de data pré-início
+
+# --- Colunas do CSV de campanhas (coluna real bd_ads → conceito) ---
+# Aba bd_ads: snake_case, funil granular por linha (dia×anúncio).
+campanhas_cols:
+  data: data
+  canal: canal                # ORGANICO/META/GOOGLE (normalizado no gerador)
+  campanha: nome_campanha
+  conjunto: nome_conjunto
+  anuncio: nome_anuncio
+  investimento: investimento
+  conversao: mql              # evento de conversão por anúncio (= o "MQL"=SAL antigo)
+  demo_agendada: scheduled_meeting
+  demo_realizada: show_meeting
+  clientes: win
+  faturamento: total_value
+  impressoes: impressões      # opcional/tolerante
+  cliques: ad_clicks          # opcional/tolerante
+  # disponíveis no bd_ads mas ainda não plotadas: alcance, calls, mensagens,
+  # conversões, lead, oportunidades, sql, proposal_sent, in_negotiation, lost
+
+# --- Mapeamento CRM: etapa lógica → {flag booleano, campo de data} ---
+# É O CORAÇÃO DA PARAMETRIZAÇÃO. Cada projeto nomeia suas etapas/campos diferente.
+funil:
+  lead:            {flag: null,               date: create_at}
+  mql_operacional: {flag: sal,                date: sal_at}              # Sigo: MQL = SAL (SDR valida)
+  sql:             {flag: sql,                date: sql_at}
+  demo_agendada:   {flag: scheduled_meeting,  date: scheduled_meeting_at}
+  demo_realizada:  {flag: show_meeting,       date: show_meeting_at}     # ★ ESTRELA (meta mensal)
+  negociacao:      {flag: in_negotiation,     date: null}
+  cliente:         {flag: win,                date: win_at}
+  perdido:         {flag: lost,               date: null, reason: lost_reason}
+  mql_form:        {flag: mql}                # qualificação automática do form (≠ conversão; mede qualidade da fonte)
+join_ad_id: ad_id          # liga lead↔anúncio (campanhas é a verdade do CRM fatiada por anúncio)
+canal_crm: canal           # canal do lead (paid/orgânico)
+segmento: icm_product_map  # dimensão de segmento (Sigo: tier_tamanho vem vazio → usa este)
+
+# --- Campos de valor (receita) ---
+campos_valor:
+  total_value:   total_value          # 1 mensalidade + implementação
+  mensalidade:   value_mensalidade
+  implementacao: value_implementação
+
+# --- Métrica-estrela & metas OKR (LIDO EM RUNTIME pelo gerador) ---
+# Troca de quarter = editar SÓ este bloco. `quarter_vigencia` define a JANELA
+# do placar OKR (vigência da meta). Desde o retrofit v4 (2026-07-02, padrão
+# monitor-builder v2.1): virada de quarter NÃO trava mais a regeneração — o
+# renderer pro-rateia a meta pela interseção período×vigência e ESCONDE a meta
+# quando o recorte está fora da vigência (esconder > mentir).
+estrela: demo_realizada
+canais_meta: null   # null = metas valem pra TODOS os canais (meta é da operação,
+                    # não só da mídia paga); lista de canais restringe o placar.
+metas:
+  quarter_vigencia: "2026-Q3"   # quarter ao qual estas metas se aplicam (formato AAAA-Qn)
+  # Régua de Q2 mantida pra Q3 — CONFIRMADO pelo operador em 2026-07-02.
+  # Revisar no planning de Q3 (~15/jul): sair valores novos, editar só abaixo.
+  demos_real_mes: 100
+  demos_agend_mes: 120
+  sql_semana: 25
+  clientes_q: 40
+  valor_total_q: 100000
+  budget_q: 50000
+  taxas: {sal_sql: 0.50, show: 0.70, close: 0.20}
+  baseline_q_anterior: {show: 0.60, close: 0.15, sal_sql: 0.40}
+
+# --- Qualificadores (v5 — tela "Quem converte melhor?") ---
+# `campos`: dimensão lógica → coluna do CRM. `normalizacao`: valor de origem
+# (case-insensitive) → rótulo canônico (a origem tem variantes de caixa/grafia).
+# Valor não mapeado: title-case automático. Nº cru de obras ("3","5") vira bucket
+# no gerador. Editar aqui = refletir no monitor sem tocar código.
+qualificadores:
+  campos:
+    obras: qualificador_tamanho       # porte (nº de obras) — fit ICP
+    ferramenta: qualificador_maturidade  # ferramenta atual (concorrente/planilha/nenhuma)
+    cargo: qualificador_cargo         # decisor vs colaborador
+    segmento: segmento                # construtora/incorporadora/etc
+    dor: qualificador_dor             # ainda esparso (~18%) — acende sozinho
+  normalizacao:
+    "1-2 obras": "1-2 obras"
+    "3-5 obras": "3-5 obras"
+    "+5 obras": "+5 obras"
+    "nenhuma obra em andamento": "Nenhuma obra"
+    "desconhecido": "Desconhecido"
+    "utilizo planilhas (excel / google sheets)": "Planilhas"
+    "utilizo planilhas excel": "Planilhas"
+    "planilhas": "Planilhas"
+    "não utiliza": "Nenhuma ferramenta"
+    "não utilizo nenhuma ferramenta": "Nenhuma ferramenta"
+    "nenhuma": "Nenhuma ferramenta"
+    "sienge": "Sienge (concorrente)"
+    "90 compor": "Compor (concorrente)"
+    "sistema especialista": "Sistema especialista"
+    "sistema generalista (conta azul, bling...)": "Sistema generalista"
+    "utilizo algum sistema": "Algum sistema"
+    "gestor (sócio/diretor)": "Gestor (sócio/diretor)"
+    "gestor_(sócio/diretor)": "Gestor (sócio/diretor)"
+    "sócia": "Gestor (sócio/diretor)"
+    "diretor": "Gestor (sócio/diretor)"
+    "colaborador (administrativo/financeiro)": "Colaborador (adm/fin)"
+    "colaborador (engenharia/obra)": "Colaborador (eng/obra)"
+    "colaborador_(engenharia/obra)": "Colaborador (eng/obra)"
+    "colaborador (engenharia/obras)": "Colaborador (eng/obra)"
+    "colaborador_(engenharia/obras)": "Colaborador (eng/obra)"
+    "autônomo": "Autônomo"
+    "consultor": "Consultor"
+    "consultoria externa": "Consultor"
+    "construtora": "Construtora"
+    "incorporadora": "Incorporadora"
+    "arquitetura e projetos": "Arquitetura e Projetos"
+    "obras públicas": "Obras Públicas"
+    "serviços especializados": "Serviços Especializados"
+    "não sou da construção civil": "Fora da Construção"
+    "contabilidade": "Contabilidade"
+    "consultoria": "Consultoria"
+    "estudante": "Estudante"
+
+# --- TCV (fórmula de receita — varia por modelo de negócio) ---
+tcv:
+  modelo: recorrente                 # recorrente | one-shot
+  formula: "tcv_meses * mensalidade + implementacao"  # Sigo: 6 meses (produto recorrente, sem LTV real)
+  config_csv: config-financeiro.csv  # FEE/margem/tcv_meses por mês
+
+# --- Identidade visual (DS do operador) ---
+design_system: ../../00-sistema/design-system.css
+fonte_titulo: Archivo                 # Sigo rejeitou Morganite/Montserrat

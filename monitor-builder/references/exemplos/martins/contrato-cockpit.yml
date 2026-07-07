@@ -1,0 +1,78 @@
+# contrato-cockpit.yml — Martins Locações
+# NB: valores numéricos de metas/FEE são FICTÍCIOS (sanitizados pra publicação).
+# Único lugar onde mora o que varia por cliente. O gerador lê o bloco `metas`
+# EM RUNTIME (troca de quarter sem tocar código). Modelo: locação de equipamentos
+# + venda de material (B2C-viés), eixo Aquisição × Recompra (NÃO é o funil de
+# demo/SDR do Sigo). Métrica-estrela = faturamento de novos clientes (aquisição).
+projeto: martins-locacoes
+
+# --- Fontes do feed (nomes dos CSVs em dados-fonte/) ---
+fontes:
+  ganhos:    bd-buy.csv          # negócios ganhos (deal_id, lead_id, crosed_at, total_value, product_cart, closer)
+  pipeline:  leads-pipeline.csv  # pipeline completo (canal, win, win_at) — usado p/ enriquecer canal do ganho
+  leads:     leads.csv           # contatos (wins, first_win_at) — confirma recompra
+  ads:       bd-ads.csv          # campanha diária por anúncio (investimento BR "43,69", data dd/mm/yyyy)
+min_ano: 2024                     # descarta outliers de data pré-início (ex: linhas "manual" 1999)
+
+# --- Eixo Aquisição × Recompra (coração do modelo Martins) ---
+# Classificação por lead_id (canônico): 1º ganho do lead (menor crosed_at no histórico) = AQUISIÇÃO;
+# ganhos seguintes do mesmo lead = RECOMPRA. Lifetime classifica; o período (quarter) recorta o relatório.
+eixos:
+  chave_cliente: lead_id
+  data_ganho: crosed_at          # data do fechamento (won) em bd-buy
+  valor_ganho: total_value
+  produto: product_cart
+  closer: closer
+
+# --- Colunas do CSV de ads (bd_ads → conceito) ---
+ads_cols:
+  data: data                     # dd/mm/yyyy HH:MM:SS
+  canal: canal                   # paid_google / paid_meta / organic ...
+  investimento: investimento     # formato BR (vírgula decimal)
+  anuncio: nome_anuncio
+  campanha: nome_campanha
+
+# --- Join p/ atribuir canal ao ganho (bd_buy não tem canal) ---
+join:
+  ganho_para_canal: {de: deal_id, para_em_pipeline: deal_id, campo_canal: canal}
+
+# --- Período de vigência + Metas OKR (LIDO EM RUNTIME) ---
+# Q2 2026 = "Validar a Máquina de Aquisição" (até 1/jul). Metas SÓ de aquisição.
+# NB: os 3 KRs de volume não fecham entre si (300k÷400=750 ≠ 800) — por decisão
+# do operador, cada KR é medido independente vs seu próprio alvo.
+# FEE de gestão por mês (R$) — usada no DRE (Investimento Total = mídia + FEE).
+# default cobre meses não listados. (R$10k até dez/25, R$5k a partir de jan/26.)
+fee:
+  default: 5000
+  por_mes:
+    "2025-10": 10000
+    "2025-11": 10000
+    "2025-12": 10000
+
+# Canais que contam pro OKR. A "Máquina de Aquisição" é mídia paga — só estes
+# entram no realizado vs meta. Os demais (organic, canal vazio, manual) aparecem
+# na visão geral e no filtro, mas NÃO contam pro KR. (Correção do operador 2026-06-29.)
+canais_meta: [paid_google, paid_meta]
+
+periodo:
+  quarter_vigencia: "2026-Q2"
+  inicio: "2026-04-01"
+  fim: "2026-06-30"
+
+metas:
+  aquisicao:
+    faturamento: 300000        # KR — R$ faturamento de novos clientes
+    clientes: 400              # KR3 — nº de novos clientes (ganhos de aquisição)
+    ticket_medio: 800          # KR6 — R$ (medido independente; ver nota acima)
+    investimento: 100000       # KR5 — R$ budget do período
+    roas_min: 3.0              # KR1 — ROAS > 3 (faturamento ÷ investimento)
+    cac_max: 250               # KR2 — CAC blended < R$ 250 (investimento ÷ clientes)
+  recompra: null               # sem meta neste Q2 — eixo monitora só realizado
+
+# --- Modelo de receita ---
+tcv:
+  modelo: locacao_mais_venda   # locação (recorrente por período) + venda de material (one-shot)
+  observacao: "Ticket misto: locação (equip/caçambas/escoramentos) + venda (areia/brita). Ver product_cart."
+
+# --- Identidade visual ---
+tema: dark-vermelho            # alinhado ao slide de OKR da Martins (dark + vermelho)
