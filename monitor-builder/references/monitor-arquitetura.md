@@ -2,11 +2,11 @@
 
 A engenharia é estável entre projetos; só os parâmetros (contrato) mudam. Preserve estes invariantes ao adaptar.
 
-## 1. Dois arquivos, uma responsabilidade cada
-- **`_gerar-monitor.py`** — lê os CSVs, faz parsing/limpeza, **emite um payload granular** + computa o OKR fixo do quarter. Não renderiza. Escreve **dois artefatos do mesmo payload `P`**: `monitor.html` (via `render`) e **`monitor.json`** (snapshot estruturado p/ skills de análise — ver `contrato-snapshot.md`). Lê as **metas do `contrato-cockpit.yml` em runtime** (`load_meta()`, `pyyaml` + fallback gracioso pro `META_DEFAULT`) — troca de quarter sem tocar código.
+## 1. Dois arquivos, uma responsabilidade cada (dados-fonte 2.0)
+- **`_gerar-monitor.py`** — **render-prep**: consome `derivado/fato-ads-enriquecido.csv` + `derivado/dim-criativo.csv` (do `motor-dados-vault`; + CRM analítico sem PII e termos do raw como passthrough), **importa os helpers de parsing do `_transform.py`** do vault (1 fonte de verdade — nunca duplicar parser) e **emite um payload granular** + OKR da vigência. **NÃO faz join nem deriva** (isso é o transform). Exceção única declarada: a reconciliação CRM×campanhas (`compute_resid()` — resíduo aditivo, linhas cruas intactas) permanece no render-prep por precedência histórica; migração pro motor é backlog (`motor-dados-vault` modo extensao) — não estenda essa lógica aqui. Escreve **dois artefatos do mesmo payload `P`**: `monitor.html` (via `render`) e **`monitor.json`** (snapshot p/ skills de análise — ver `contrato-snapshot.md`). Lê as **metas do `contrato-cockpit.yml` em runtime** (`load_meta()`, `pyyaml` + fallback gracioso) — meta hardcoded no gerador já parou monitor por 2 dias na virada de quarter.
 - **`_render_monitor.py`** — recebe o payload (`P`) e devolve o HTML completo (CSS inline + Chart.js + **toda a agregação em JS**). Não lê CSV.
 
-`_gerar` importa `render` de `_render`. O feed roda só `_gerar` (que escreve HTML + JSON).
+`_gerar` importa `render` de `_render`. A cadeia roda só `_gerar` (que escreve HTML + JSON). Payload v3 tem, além dos interns clássicos, os blocos `P.dim` (atributos da dim-criativo), `P.brk` (breakdowns do flow + funil ad×mês pro rateio) e `P.lib` (biblioteca de criativos) — degradam vazios sem extração flow.
 
 ## 2. Payload granular interned (leve + sem PII)
 - Emite **linhas granulares** (campanha diária; leads 1-por-linha), NÃO pré-agregados — pra os filtros recalcularem no browser.

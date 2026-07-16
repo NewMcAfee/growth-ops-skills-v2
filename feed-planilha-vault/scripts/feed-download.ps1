@@ -5,7 +5,7 @@
 # (ao lado). Assim o script é copiado byte-a-byte (BOM preservado) e nunca passa
 # por editor que corrompa o encoding — causa-raiz de bug no PowerShell 5.1.
 #
-# Padrão year-to-date cumulativo: 1 arquivo de nome fixo por aba, SOBRESCRITO.
+# Padrão base-completa: 1 arquivo de nome fixo por aba, SOBRESCRITO.
 # Trava de segurança: baixa .tmp -> valida -> só então Move-Item por cima.
 # Fonte com erro nunca destrói dado bom (loga WARN).
 # =============================================================================

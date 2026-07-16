@@ -1,21 +1,43 @@
 ---
 name: feed-planilha-vault
-description: Configura um feed diário que baixa abas de uma planilha Google Sheets pública como CSV e sobrescreve arquivos de nome fixo num vault local (Windows), com detecção de PII→gitignore, QA de qualidade da origem, tarefa agendada robusta e cascata sináptica. Ative quando o operador quiser automatizar a entrada de dados de uma planilha no vault de um projeto, ou auditar/replicar um feed existente. NÃO ative para planilhas privadas que exigem OAuth, fontes que não sejam Google Sheets (Excel/OneDrive/API), análise dos dados (use newton/darwin), ou agendamento em cloud.
+description: Monta e opera a camada de EXTRAÇÃO + ORQUESTRAÇÃO (dados-fonte 2.0) de um vault Growth IA Ops (Windows, zero-Claude) — feed de planilha Google pública → raw/, extração de warehouse flow via MCP JSON-RPC stdlib, cadeia agendada extract→transform→render→publish→notify, e report diário WhatsApp via Evolution API; com PII→gitignore, travas de sobrescrita atômica, QA da origem e tarefas agendadas robustas. Ative para bootstrap de feed novo, extensão de feed existente (aba/extração/estágio/report novo), ou auditoria de feeds (modo status). NÃO ative para criar contrato/transform/derivados (motor-dados-vault), renderizar monitor (monitor-builder), planilhas privadas com OAuth, fontes não-Google-Sheets sem MCP, análise de dados (newton/darwin/falconi), ou agendamento em cloud.
 allowed-tools: Read,Write,Edit,Bash,PowerShell,AskUserQuestion
 ---
 
-# feed-planilha-vault
+# feed-planilha-vault — Engenheiro da Camada de Extração (dados-fonte 2.0)
 
 ## Contexto
 
-Operadores Growth IA Ops alimentam vaults locais com dados vivos de planilhas (campanhas, CRM, financeiro). O download em si é trivial; o que erra é a **governança**: PII de cliente vazando pro Git, dado corrompido na origem passando despercebido, cópias acumuladas do mesmo year-to-date, e tarefa agendada que não roda no laptop. Esta skill faz o feed **nascer auditável e seguro**: um arquivo de nome fixo por aba, sobrescrito diariamente, com PII protegida, qualidade verificada e docs do vault em cascata. Mecanismo é **sempre local** (PowerShell + Agendador do Windows) — cloud não enxerga o filesystem do vault.
+Na arquitetura **dados-fonte 2.0** (ELT), o vault é a camada de dados do projeto: fontes entregam **bruto**, um motor determinístico deriva, o monitor renderiza e o operador recebe report — tudo **zero-Claude** (scripts puros agendados; nenhuma sessão de LLM na cadeia). Esta skill é a dona das pontas: **extração** (planilha Google 2×/dia + warehouse flow às segundas → `raw/`) e **orquestração** (a cadeia `extract → transform → render → publish → notify`, com cada estágio degradando com WARN sem derrubar o que está de pé). O que erra num feed não é o download (trivial) — é a governança: PII vazando pro Git, dado corrompido passando batido, cadeia parada em silêncio, tarefa que não roda no laptop. A skill faz o feed **nascer auditável, seguro e encadeado**.
 
-Antes de agir, **leia [references/regras-aplicadas.md](references/regras-aplicadas.md)** (R1–R8 — as invariantes). O caso completo de referência está em [references/exemplo-sigo-erp.md](references/exemplo-sigo-erp.md).
+Antes de agir, **leia [references/regras-aplicadas.md](references/regras-aplicadas.md)** (R1-R16 — as invariantes). Caso vivo completo: [references/exemplo-sigo-erp.md](references/exemplo-sigo-erp.md).
+
+## Posição na cadeia (bounded context)
+
+```
+feed-planilha-vault (ESTA)        motor-dados-vault            monitor-builder
+extract → raw/  +  orquestra ───► contrato + transform ───►    render (monitor.*)
+a cadeia inteira e o notify         → derivado/                 └► publish + notify (estágios DESTA)
+```
+
+| Fronteira | De quem é |
+|---|---|
+| **Baixar fontes, escrever `raw/`, orquestrar/agendar a cadeia, notify** | **esta skill** |
+| Contrato de dados, `_transform.py`, `derivado/`, QA gates de join | `motor-dados-vault` |
+| Gerador/renderer do monitor (`_gerar-monitor.py`/`_render_monitor.py`) | `monitor-builder` |
+| Interpretar o dado | `newton`/`darwin`/`falconi` |
+
+> **Exceção declarada de posse do orquestrador:** `motor-dados-vault` e `monitor-builder` **instalam o próprio estágio** (transform/render) no `_atualizar-dados.ps1` existente quando são executadas depois do feed — cada skill pluga o estágio que é dela, no padrão try/catch degradante + R12. Quem edita o `.ps1` **obedece R4** (UTF-8 com BOM): após qualquer edição, re-assegure o BOM (`[IO.File]::WriteAllText($p,(Get-Content $p -Raw -Encoding UTF8),(New-Object Text.UTF8Encoding($true)))`) e rode a cadeia 1× pra validar.
+
+A cadeia é **incremental**: um vault pode ter só o feed (estágio 1) e ganhar transform/render/notify depois — o orquestrador pula estágio ausente com WARN.
+
+> **Vault v1 sendo MIGRADO pro 2.0** (já tem feed antigo + monitor vivo com gerador fazendo joins)? Antes de mexer, siga o playbook canônico **`motor-dados-vault/references/migracao-v1-v2.md`** — ele define a ordem (baseline congelado → raw/ → contrato/motor → render), o handoff entre as 3 skills e os golden tests que protegem a lógica específica do projeto. Esta skill executa o Passo 1 de lá.
 
 ## Modos
 
-- **setup** (default) — bootstrap de um feed novo num projeto.
-- **status** — listar/auditar feeds já configurados (lê `_download.log`, checa a tarefa, re-roda QA).
+- **setup** (default) — bootstrap do feed num projeto (planilha; + flow e notify se o projeto tem).
+- **extensao** — aba nova, extração flow nova, estágio novo na cadeia, ou configurar o notify num feed existente.
+- **status** — listar/auditar feeds (logs, tarefas, frescor, re-QA).
 
 Detecte o modo pela intenção. Em dúvida, pergunte.
 
@@ -24,15 +46,15 @@ Detecte o modo pela intenção. Em dúvida, pergunte.
 ## Modo SETUP — passos
 
 ### Passo 0 — Coletar parâmetros (não pule)
-Levante, perguntando o que faltar (use AskUserQuestion para escolhas):
-1. **Link da planilha** → extraia o ID (`/spreadsheets/d/{ID}/`).
-2. **Abas** a puxar (nomes exatos, case-sensitive).
-3. **Projeto/vault** alvo e **pasta-destino** — default `90-referencias/dados-fonte/` (R6: é input externo bruto, não output canônico). Confirme o root do vault.
-4. **Nomes de arquivo** de saída — fixos, sem data (porque sobrescreve). Sugira a partir do conteúdo (ex: `campanhas-ano-corrente.csv`).
-5. **Horário** do download diário.
+Levante, perguntando o que faltar (AskUserQuestion para escolhas):
+1. **Planilha**: link → ID (`/spreadsheets/d/{ID}/`); **abas** exatas (case-sensitive); horários (default 2×/dia 07:30+17:30).
+2. **Vault/pasta-destino** — default `90-referencias/dados-fonte/` com **subpasta `raw/`** (R6: bruto é input externo; raw/ separa o que o feed escreve do que o motor deriva).
+3. **Nomes de arquivo** fixos, sem data (sobrescreve — padrão base-completa).
+4. **Flow/warehouse?** Se o projeto tem MCP de warehouse (flow/Nekt): quais extrações (criativos/geo/demo/device/hora/keywords/saldo) — ver [references/extracao-flow-mcp.md](references/extracao-flow-mcp.md).
+5. **Notify?** Se o operador quer report WhatsApp: destino (grupo/número), horário (default 08:00) — pressupõe `config-financeiro.yml` (budget/alertas; se ausente, o `motor-dados-vault` cria por entrevista).
 
 ### Passo 1 — Descobrir gids, testar acesso e baixar amostra
-Pegue os **gids** de todas as abas de uma vez (R10 — `/export?gid=` materializa fórmulas que o gviz trunca):
+Pegue os **gids** de todas as abas (R10 — `/export?gid=` materializa fórmulas que o gviz trunca):
 ```bash
 ID="<id>"
 curl -sL "https://docs.google.com/spreadsheets/d/$ID/htmlview" \
@@ -40,93 +62,132 @@ curl -sL "https://docs.google.com/spreadsheets/d/$ID/htmlview" \
 # (mais simples: abra a aba no navegador e leia o #gid= na URL)
 ```
 Baixe cada aba via `/export?gid=` pro scratchpad e inspecione:
-```bash
-GID="<gid>"
-curl -sL "https://docs.google.com/spreadsheets/d/$ID/export?format=csv&gid=$GID" \
-  -o "/tmp/amostra.csv" -w "HTTP %{http_code} | %{size_download}b | %{content_type}\n"
-```
-- `content_type: text/csv` + 200 → **pública, ok**.
-- HTML / `<!DOCTYPE` / poucos bytes → **privada** → ver [troubleshooting.md](references/troubleshooting.md); pare e peça compartilhamento público.
-- Anote, de cada aba, **1ª coluna do header** → âncora `mustContain` (R5), e a **contagem de registros esperada** → o truncamento por fórmula é silencioso (R10), valide o nº de linhas.
+- `content_type: text/csv` + 200 → pública, ok. HTML/`<!DOCTYPE`/poucos bytes → privada → [troubleshooting.md](references/troubleshooting.md); pare e peça compartilhamento.
+- Anote por aba: **1ª coluna do header** → âncora `mustContain` (R5) e **contagem esperada** de linhas (truncamento é silencioso — R10).
 
 ### Passo 2 — PII + QA de qualidade (decisão de segurança)
-Rode o scanner em cada amostra:
-```bash
-python "<skill>/scripts/scan-fonte.py" /tmp/amostra.csv
+Rode `python "<skill>/scripts/scan-fonte.py" <amostra>` em cada aba:
+- **PII detectada** → CSV vai pro `.gitignore` (R6). Sem PII → commitável.
+- **Colunas contaminadas** (R7: %-corrompida, notação científica, célula-erro) → reporte por nome de cabeçalho + formato-alvo pra correção **na planilha**. Pendência, não bloqueio.
+
+### Passo 3 — Montar estrutura + motor de download
+1. Crie `<destino>/raw/` (e adicione `derivado/` ao plano se o vault vai ganhar o motor).
+2. **Copie** (byte-a-byte, preserva BOM — R4) `scripts/feed-download.ps1` → `<destino>/_feed-download.ps1`. `Copy-Item`, **nunca** Write/Edit.
+3. Gere `<destino>/feed-config.json` do exemplo, com `out` apontando pra `raw\<arquivo>.csv`, um target por aba (`sheet`, `gid`, `out`, `mustContain`, `pii`; `minBytes` menor pra aba padrão ainda vazia).
+
+### Passo 4 — Estágios da cadeia (orquestração)
+O motor de download é o estágio 1. Encadeie os demais **que existirem** no vault, cada um em `try/catch` que degrada com WARN (o modelo completo é o `_atualizar-dados.ps1` do exemplo Sigo — ver [references/cadeia-e-notify.md](references/cadeia-e-notify.md)):
+- **transform** (`_transform.py`, se o `motor-dados-vault` já instalou) — R12: rodar via `cmd /c "python ... 2>&1"` e decidir pelo **exit code** (stderr mata a cadeia no PS 5.1).
+- **render** (`_gerar-monitor.py`, se o `monitor-builder` já construiu) — mesmo padrão R12.
+- **publish** (Cloudflare Pages via wrangler) — R13: `Push-Location` na pasta do feed antes (tarefa agendada roda com cwd=System32 e o wrangler morre com EPERM).
+- **extração flow** é script/tarefa **separada** (`_extrair-flow.py`, segundas 07:00 antes do feed diário) — ver [references/extracao-flow-mcp.md](references/extracao-flow-mcp.md).
+- **notify** é script/tarefa separada (`_notify.py`, diário 08:00) — ver [references/cadeia-e-notify.md](references/cadeia-e-notify.md).
+
+### Passo 5 — Carga inicial + validação
+Rode a cadeia 1× e confira `_download.log`: `[OK]` por aba + por estágio. `[WARN]` → diagnostique antes de seguir. Confirme CSVs em `raw/` com contagens plausíveis vs Passo 1.
+
+### Passo 6 — Proteger PII no Git (gate antes de qualquer commit)
+Para cada CSV `pii: true` + logs + artefatos com PII:
 ```
-- **PII detectada** → esse CSV vai pro `.gitignore` (R6). Sem PII → commitável.
-- **Colunas contaminadas** (R7: porcentagem-corrompida, notação-científica, célula-erro) → **reporte ao operador por nome de cabeçalho + formato-alvo** pra ele corrigir **na planilha** (não no CSV). Não bloqueie o setup por isso — registre como pendência.
+<destino>/raw/<arquivo-pii>.csv
+<destino>/_download.log
+<destino>/monitor.html      # se a cadeia renderiza (payload carrega CRM)
+<destino>/monitor.json
+```
+**Verifique de fato**: `git check-ignore -v <path>` tem que dar match em cada um.
 
-### Passo 3 — Montar a pasta e a config
-1. Crie a pasta-destino no vault.
-2. **Copie** (byte-a-byte, preserva BOM — R4) `scripts/feed-download.ps1` → `<destino>/_feed-download.ps1`. Use `Copy-Item`, **nunca** Write/Edit (removeria o BOM).
-3. Gere `<destino>/feed-config.json` a partir de `scripts/feed-config.exemplo.json`, preenchendo `sheetId` e um `targets[]` por aba (`sheet`, `gid`, `out`, `mustContain`, `pii`). Preferir `gid` (R10); sem ele, o motor cai no fallback gviz por nome. JSON pode ser UTF-8 sem BOM.
-
-### Passo 4 — Carga inicial + validação
-Rode o motor uma vez e confira o log:
+### Passo 7 — Registrar a família de tarefas
+Use o helper (R3 — StartWhenAvailable + bateria + retry) pra **cada** tarefa: feed diário (2 gatilhos ou 2 tarefas), flow semanal (segundas, ANTES do feed do dia), notify diário:
 ```powershell
-& "<destino>\_feed-download.ps1"
+& "<skill>\scripts\register-task.ps1" -TaskName "<Projeto> - Dados Fonte" -ScriptPath "<destino>\_feed-download.ps1" -Time "07:30"
 ```
-Espere `[OK]` por aba em `_download.log`. Se `[WARN]`, diagnostique antes de seguir (troubleshooting.md). Confirme que os CSV existem com tamanho plausível.
+Depois **dispare um teste real** de cada e cheque `LastTaskResult = 0`.
 
-### Passo 5 — Proteger PII no Git (antes de qualquer commit)
-Para cada CSV marcado `pii: true`, adicione ao `.gitignore` do vault (junto com `_download.log`):
-```
-<pasta-destino>/<arquivo-crm>.csv
-<pasta-destino>/_download.log
-```
-**Verifique de fato:** `git check-ignore -v <caminho-do-csv-pii>` tem que retornar match. PII fora do Git é requisito, não nice-to-have.
-
-### Passo 6 — Registrar a tarefa agendada
-Use o helper (R3 — já inclui StartWhenAvailable + bateria + retry):
-```powershell
-& "<skill>\scripts\register-task.ps1" -TaskName "<Projeto> - Dados Fonte" `
-    -ScriptPath "<destino>\_feed-download.ps1" -Time "<HH:mm>"
-```
-Depois **dispare um teste real** e cheque `LastTaskResult` = 0:
-```powershell
-Start-ScheduledTask -TaskName "<Projeto> - Dados Fonte"; Start-Sleep 8
-(Get-ScheduledTaskInfo -TaskName "<Projeto> - Dados Fonte").LastTaskResult
-```
-
-### Passo 7 — Cascata sináptica (R7 do vault / doutrina Growth IA Ops)
-- Crie `<destino>/mapa.md` — TOC + Resumo 60s + comandos de operação da tarefa + nota de PII. Modele pelo do exemplo Sigo ERP.
-- Atualize o `mapa.md`/`_readme.md` da pasta-pai registrando a nova subpasta.
-- Se a skill `vault-architect` estiver disponível: `vault-architect atualiza-cascata <destino>/mapa.md`.
-
-### Passo 8 — Reportar
-Resuma: pasta, arquivos (quais commitáveis × git-ignored), próxima execução da tarefa, e a **lista de colunas pra corrigir na origem** (Passo 2), se houver.
+### Passo 8 — Cascata sináptica + handoff
+- `<destino>/mapa.md` (TOC + Resumo 60s + comandos de operação + nota de PII) e `mapa.md` da pasta-pai.
+- Se o vault ainda não tem contrato/transform: **nomeie o próximo passo** — "rodar `motor-dados-vault` modo bootstrap" (a skill não cria contrato).
+- Reporte: pasta, arquivos (commitável × git-ignored), estágios ativos da cadeia, tarefas + próxima execução, pendências de origem.
 
 ---
+
+## Modo EXTENSAO — passos
+
+1. **Aba nova**: Passos 1-2 só pra ela → novo target no `feed-config.json` (ou `$Targets` do orquestrador do vault) → rodar 1× → gitignore se PII → avisar `motor-dados-vault` se ela deve entrar no contrato.
+2. **Extração flow nova**: adicionar ao `_extrair-flow.py` seguindo [references/extracao-flow-mcp.md](references/extracao-flow-mcp.md) (trava de sobrescrita; APPEND p/ fontes-snapshot — R14).
+3. **Estágio novo na cadeia**: try/catch degradante + R12/R13; nunca reordenar estágios existentes sem reler o log de uma rodada.
+4. **Notify novo/ajuste**: formato bloco-compacto multi-projeto (R16) — nunca reinventar o layout por projeto.
 
 ## Modo STATUS — passos
 
-1. **Localize feeds** no vault: procure `feed-config.json` / `_feed-download.ps1` (`Glob **/feed-config.json`).
-2. Para cada um: leia `feed-config.json` + as últimas linhas de `_download.log` (último OK/WARN por aba).
-3. **Tarefa:** `Get-ScheduledTaskInfo -TaskName "<nome>"` → última execução, `LastTaskResult`, próxima.
-4. **Frescor:** `LastWriteTime` dos CSV — bate com a periodicidade?
-5. **Re-QA opcional:** rode `scan-fonte.py` nos CSV atuais pra flagrar PII nova (coluna adicionada) ou contaminação reintroduzida.
-6. Reporte uma tabela: feed · última atualização · status · pendências.
+1. **Localize feeds**: `Glob **/feed-config.json` + `**/_atualizar-dados.ps1`.
+2. Por feed: config + últimas linhas de `_download.log` e `_flow.log` (último OK/WARN por aba/estágio/extração).
+3. **Tarefas**: `Get-ScheduledTaskInfo` de cada (feed/flow/notify) → última execução, `LastTaskResult`, próxima.
+4. **Frescor**: `LastWriteTime` dos CSVs de `raw/` vs cadência declarada.
+5. **Re-QA opcional**: `scan-fonte.py` nos CSVs pra PII nova ou contaminação reintroduzida.
+6. Reporte tabela: feed · estágios ativos · última atualização · status · pendências.
 
 ---
 
-## Padrão de output (exemplo de relatório de setup)
+## Padrão de output (relatório de setup)
 
 ```
-Feed configurado: <Projeto>
-  Pasta:    90-referencias/dados-fonte/
-  Arquivos: campanhas-ano-corrente.csv (commitável) · crm-ano-corrente.csv (git-ignored, PII)
-  Tarefa:   "<Projeto> - Dados Fonte" · diária 09:00 · próx: amanhã 09:00 · teste LastResult=0
-  Pendência na origem: phone, mql_at, +11 colunas formatadas como Porcentagem → Texto/Data
+Feed configurado: <Projeto> (dados-fonte 2.0)
+  Pasta:    90-referencias/dados-fonte/ (raw/ = só o feed escreve)
+  Fontes:   planilha 5 abas 2×/dia · flow 10 extrações às segundas
+  Cadeia:   extract → transform → render → publish → notify (todos ativos)
+  Arquivos: raw/campanhas-completo.csv (commitável) · raw/crm-completo.csv (git-ignored, PII)
+  Tarefas:  "- Dados Fonte" 07:30+17:30 · "- Flow Semanal" seg 07:00 · "- Report WhatsApp" 08:00 (LastResult=0 nas 3)
+  Próximo:  rodar motor-dados-vault (bootstrap do contrato/transform)
+  Pendência na origem: phone, mql_at +11 colunas como Porcentagem → Texto/Data
 ```
 
 ## Loop de feedback (obrigatório)
-Não declare "pronto" sem: (a) `[OK]` no `_download.log` da carga inicial; (b) `git check-ignore` confirmando cada CSV de PII fora do Git; (c) `LastTaskResult = 0` no teste real da tarefa. Os três são verificações observáveis, não suposições.
+
+Não declare "pronto" sem: (a) `[OK]` no log da carga inicial de **cada estágio ativo**; (b) `git check-ignore` confirmando cada artefato de PII fora do Git; (c) `LastTaskResult = 0` no teste real de **cada tarefa** registrada; (d) contagem de linhas de cada aba vs esperado do Passo 1.
 
 ## Anti-patterns
-- ❌ **Escrever/editar o `.ps1` na pasta-destino com Write/Edit** → remove o BOM, PS 5.1 quebra (R4). Copie o motor; parametrize só o JSON.
-- ❌ **Acumular CSV com data no nome** (`dados-2026-06-26.csv`) → o feed é year-to-date cumulativo; nome fixo + sobrescrita (R5). Cópias datadas só repetem dado.
-- ❌ **Propor `/schedule` cloud ou loop do Claude** pro download → cloud não vê o vault local; MCP Drive some headless (R8). Sempre Agendador local.
-- ❌ **Commitar antes de verificar `git check-ignore`** → PII de cliente vaza pro histórico (irreversível). Passo 5 é gate.
-- ❌ **Corrigir dado contaminado no CSV** → é sobrescrito no próximo run. A correção é na planilha-fonte (R7); a skill só reporta.
-- ❌ **Pular o Passo 0** e assumir paths/abas → cada projeto tem vault e abas próprios; a skill é genérica, o exemplo Sigo ERP é só referência.
+
+- ❌ **Escrever/editar `.ps1` na pasta-destino com Write/Edit** → remove o BOM, PS 5.1 quebra (R4). Copie o motor; parametrize pelo JSON. (Exceção: orquestrador já-existente do vault editado com ferramenta que preserve BOM + teste imediato.)
+- ❌ **CSV com data no nome** (`dados-2026-06-26.csv`) → base-completa: nome fixo + sobrescrita (R5). Exceção única: fontes-snapshot em **APPEND** (R14 — ex. saldo de conta).
+- ❌ **Redirecionar stderr de python dentro do PowerShell** (`& $py ... 2>&1` com EAP=Stop) → WARN benigno vira exceção e mata a cadeia (R12; monitor ficou 2 dias parado). `cmd /c` + exit code.
+- ❌ **Propor `/schedule` cloud ou loop do Claude** → cloud não vê o vault; MCP some headless (R8). Agendador local, zero-Claude.
+- ❌ **Commitar antes do `git check-ignore`** → PII no histórico é irreversível. Passo 6 é gate.
+- ❌ **Corrigir dado contaminado no CSV** → sobrescrito no próximo run. Correção na planilha-fonte (R7).
+- ❌ **Criar contrato/transform/derivado "de carona"** → é `motor-dados-vault`; esta skill entrega raw/ + cadeia e nomeia o próximo passo.
+- ❌ **Report WhatsApp verboso por projeto** → formato é bloco compacto multi-projeto (R16); detalhe mora no monitor, não na mensagem.
+- ❌ **Pular o Passo 0** e assumir paths/abas → cada projeto tem vault e fontes próprios; o exemplo Sigo é referência, não default.
+
+## Avaliação (3 cenários)
+
+### Cenário 1 — Bootstrap completo (setup, projeto com flow e notify)
+**Input:** "Configura o feed do vault <X>: planilha <link>, tem warehouse flow, quero report de manhã."
+**Esperado:**
+- [ ] Passo 0 completo (abas, gids, extrações flow, destino do report) — nada assumido
+- [ ] `raw/` criado; PII → gitignore verificado com `git check-ignore`
+- [ ] Cadeia com estágios existentes (R12/R13 aplicados); flow e notify como tarefas separadas
+- [ ] 3 tarefas registradas + teste real `LastTaskResult=0`
+- [ ] Handoff nomeia `motor-dados-vault` pro contrato/transform
+
+### Cenário 2 — Extensão (aba nova num feed vivo)
+**Input:** "Adiciona a aba `bd_buy` no feed do Sigo."
+**Esperado:**
+- [ ] Descobre gid + âncora + PII só da aba nova; novo target no orquestrador do vault
+- [ ] Roda 1× e valida contagem; NÃO mexe nos targets existentes
+- [ ] Avisa que a tabela deve ser declarada no contrato (`motor-dados-vault` modo extensao)
+
+### Cenário 3 — Fronteira (pedido de transform)
+**Input:** "O feed tá rodando; agora cruza o CRM com as campanhas por ad_id."
+**Esperado:**
+- [ ] Reconhece join/derivado como `motor-dados-vault` e redireciona
+- [ ] Não escreve `_transform.py` nem contrato
+
+---
+
+> **v2.0.0 (2026-07-09)** — UPGRADE GERAL (F7 dados-fonte 2.0, decisão
+> `30-decisoes/2026-07-09-dados-fonte-v2.md` do Sigo): de "planilha→CSV" pra
+> **engenheiro da camada de extração+orquestração** — `raw/`, cadeia
+> extract→transform→render→publish→notify, extração flow via MCP JSON-RPC stdlib,
+> família de tarefas (diária+semanal+notify), report WhatsApp bloco-compacto.
+> R12-R16 novas. Padrão v1 (arquivo solto na pasta, sem cadeia): ainda funciona
+> em vaults não migrados, mas todo setup novo nasce no 2.0 — histórico no git da skill.
+> **v1.x (2026-06-26)** — feed diário planilha→CSV com PII/QA/tarefa (caso Sigo original).

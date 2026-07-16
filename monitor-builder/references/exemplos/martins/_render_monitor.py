@@ -22,8 +22,8 @@ HOJE = datetime.now()
 def load_contrato():
     d = {"quarter": "2026-Q2", "inicio": "2026-04-01", "fim": "2026-06-30",
          "canais_meta": ["paid_google", "paid_meta"], "fee": {"default": 0, "por_mes": {}},
-         "metas": {"faturamento": 300000, "clientes": 400, "ticket_medio": 800,
-                   "investimento": 100000, "roas_min": 3.0, "cac_max": 250}}
+         "metas": {"faturamento": 342000, "clientes": 480, "ticket_medio": 950,
+                   "investimento": 114000, "roas_min": 3.0, "cac_max": 239.82}}
     try:
         import yaml
         c = yaml.safe_load(CONTRATO.read_text(encoding="utf-8")) or {}

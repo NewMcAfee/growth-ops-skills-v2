@@ -1,6 +1,19 @@
 ---
 name: monitor-builder
-description: Materializa dados estruturados em visualização HTML single-file (dark-first, brand do operador OU do cliente) em DOIS modos. (a) MODO DASHBOARD — 1 página a partir de snapshot dual-format `.md`+`.manifest.yml` (default `paid-media-ingestor@1.0.0`; Performance-Sprint/Drop). (b) MODO MONITOR/COCKPIT — cockpit multi-tela VIVO de acompanhamento recorrente, com sidebar de telas + filtros globais estilo Google Ads (date-range picker com presets/calendário/comparação + canal multi-select) sobre dados de feed (CSV do growthpack/CRM), com OKR/KRs, funil, cohort de recompra, DRE e drill de mídia, publicável em Cloudflare Pages e regenerável por pipeline. Ative quando precisar VER dados estruturados como HTML — dashboard pontual de snapshot OU monitor recorrente que o gestor acompanha. NÃO ative pra ingerir CSV bruto (use `paid-media-ingestor`/`feed-planilha-vault`), análise narrativa interpretativa (use `newton@2.0.0`/`falconi`), slides (use `deck-renderer`), ou consumir fonte que ainda não existe (é CONSUMIDORA de dado, não produtora).
+description: >-
+  Materializa dados estruturados em visualização HTML single-file (dark-first, brand do operador
+  OU do cliente) em DOIS modos. (a) MODO DASHBOARD — 1 página a partir de snapshot dual-format
+  `.md`+`.manifest.yml` (default `paid-media-ingestor@1.0.0`; Performance-Sprint/Drop). (b) MODO
+  MONITOR/COCKPIT — cockpit multi-tela VIVO (dados-fonte 2.0), SÓ RENDER sobre a camada derivada
+  do vault (derivado/fato + dim-criativo do motor-dados-vault), com sidebar de telas + filtros
+  globais estilo Google Ads, OKR/KRs por vigência, funil, safra, DRE, drill de mídia com selects
+  em cascata, biblioteca de criativos com popup, debriefing por atributo criativo e dimensões de
+  entrega com funil estimado por rateio — regenerado pela cadeia do feed e publicável em
+  Cloudflare Pages. Ative quando precisar VER dados estruturados como HTML — dashboard pontual de
+  snapshot OU monitor recorrente que o gestor acompanha. NÃO ative pra baixar/orquestrar dados
+  (feed-planilha-vault), fazer joins/derivados/contrato (motor-dados-vault), análise narrativa
+  interpretativa (newton/falconi), slides (deck-renderer), ou consumir fonte que ainda não existe
+  (é CONSUMIDORA de dado, não produtora).
 allowed-tools: Read,Write,Edit,Glob,Grep,Bash,PowerShell
 ---
 
@@ -262,20 +275,34 @@ Antes de finalizar:
 - [ ] Inclui comparativo vs drop anterior se manifest declara `drop_anterior_referencia`
 - [ ] Embedável no `drop-delivery-deck-builder` via iframe ou screenshot
 
-## 11. Modo Monitor / Cockpit (v2) — feed vivo
+## 11. Modo Monitor / Cockpit (v3) — render da camada derivada (dados-fonte 2.0)
 
-Quando o pedido é um **monitor recorrente** que o gestor acompanha (cockpit vivo do feed, não dashboard de snapshot estático), **siga o workflow de 6 passos em `references/modo-monitor-workflow.md`** (contrato → forjar gerador+renderer → config financeiro → plugar no feed → validar no browser → cascata). Esta camada foi **consolidada do antigo `cockpit-builder`** (deprecado, fundido aqui).
+Quando o pedido é um **monitor recorrente** que o gestor acompanha (cockpit vivo, não dashboard de snapshot estático), **siga o workflow em `references/modo-monitor-workflow.md`**. Esta camada foi consolidada do antigo `cockpit-builder` (deprecado) e, na v3, **restrita a SÓ RENDER** dentro da arquitetura dados-fonte 2.0.
 
-**Diferença vs Modo Dashboard:** dashboard = 1 página, snapshot `.md`+`.yml` curado, mídia paga. Monitor = multi-tela, dados **VIVOS** de feed (CSV growthpack/CRM), filtros interativos, regenerado pelo pipeline, publicável. PII nunca no HTML; `.html`/`.json` git-ignored.
+**Posição na cadeia (bounded context v3):**
+```
+feed-planilha-vault      motor-dados-vault           monitor-builder (ESTA)
+extract → raw/    ─────► contrato + transform ─────► render: derivado/ → monitor.html + monitor.json
+                          → derivado/                 (estágio 3 da cadeia; publish é do feed)
+```
+- O gerador **consome `derivado/fato-ads-enriquecido.csv` + `derivado/dim-criativo.csv`** (via `load_fato()`) e **importa os helpers de parsing do `_transform.py`** (`br_num`/`pdate`/`iso`/`istrue`/`canal_norm` — 1 fonte de verdade, zero drift). **Nunca refaz join** que o motor já faz; dado que falta no derivado = feature request pro `motor-dados-vault`, não parsing novo no gerador. (CRM analítico sem PII e termos ainda são lidos do raw — são passthrough sem join, não cruzamento.)
+- Pré-requisitos: feed rodando (`feed-planilha-vault`) + camada transform instalada (`motor-dados-vault`). Sem eles → pare e nomeie a skill upstream. **Monitor v1 vivo sendo migrado** (gerador antigo fazendo joins)? Siga o playbook `motor-dados-vault/references/migracao-v1-v2.md` — esta skill executa o Passo 3 de lá (refatorar o gerador em render-prep com paridade provada contra o baseline v1).
+- Parametrização em DOIS contratos: `contrato-cockpit.yml` (metas OKR por `quarter_vigencia`, semântica de funil, canais — lido em **runtime**, meta NUNCA no gerador) e `config-financeiro.yml` (vigências append-only: fee/margem/tcv/budget — loader expande pra mensal; fallback CSV legado só p/ vault não migrado).
 
-**O que constrói:** o par Python `_gerar-monitor.py` (emite `monitor.json` determinístico p/ skills de análise) + `_render_monitor.py` (cockpit `monitor.html` auto-contido), parametrizado por `contrato-cockpit.yml` (metas/funil/canais/FEE em runtime), plugado no `_atualizar-dados.ps1` do feed.
+**Diferença vs Modo Dashboard:** dashboard = 1 página, snapshot `.md`+`.yml` curado. Monitor = multi-tela, dados vivos da cadeia, filtros interativos, regenerado a cada feed, publicável. PII nunca no HTML; `monitor.html`/`monitor.json` git-ignored.
+
+**O que constrói:** o par Python `_gerar-monitor.py` (render-prep: payload interned `P` → `monitor.html` + `monitor.json` p/ skills de análise) + `_render_monitor.py` (cockpit auto-contido), plugado como estágio render na cadeia do feed (`cmd /c` + exit code — stderr mata a cadeia no PS 5.1).
+
+**IA de telas do padrão vigente (Sigo v6.4, 10 telas decision-first):** Visão Geral (OKR vigência + pace/forecast) · Atenção (pontos cegos + reconciliação + QA + veredito) · Funil & Pipeline · Qualificadores (form + SDR) · Safra · Mídia (drill com **selects em cascata** Campanha→Conjunto + filtro de texto + clique no anúncio abre popup do criativo) · **Criativos** (biblioteca: cards com preview via image_hash→URL CDN, agrupado por nome, ordenável, popup imagem+copy+métricas) · **Debriefing** (2 tabelas full-width com subtabs Mensagem/Público + 1 cruzamento único com 3 selects atributo×público/entrega×métrica) · **Dimensões** (geo/idade×gênero/device/hora com seletor único) · Mensal/DRE (+CPL/CP-SAL/custo-demo; aviso explícito: âncora = MÊS DO EVENTO, não safra).
+
+**Payload v3 (blocos além dos interns clássicos):** `P.dim` (atributos parseados da dim-criativo) · `P.brk` (breakdowns mensais do flow internados + **funil por ad×mês pro rateio**) · `P.lib` (biblioteca: imagem/título/CTA/body paralelo a `aI.l`). **Funil por dimensão de entrega é ESTIMADO por rateio** (evento(ad,mês) × share de spend da dimensão) — células sempre sinalizadas com `*`; funil por atributo do anúncio/público é real. **Forecast adaptativo** (`natEnd()`): projeta até o fim natural da janela do preset (mês/semana/trimestre), rótulo mostra a data-fim.
 
 **References (modo monitor):** `modo-monitor-workflow.md` (workflow 7 passos + regras + anti-patterns + **Passo 6 colheita**) · `monitor-biblioteca.md` (**catálogo de componentes** — identificadores estáveis + contrato de dados por componente) · `blueprints/` (**modelo de negócio → telas/KPIs/cruzamento**: `aquisicao-recompra` · `recorrencia` · `tcv-projeto` · **modelo HÍBRIDO por BU** = compor rec+tcv via `receita.por_bu`, ver exemplo colina) · `monitor-arquitetura.md` (engenharia: payload interned + agregação JS) · `monitor-contrato-projeto.md` (schema do `contrato-cockpit.yml` + extensões Colina: `mes_fiscal`/`receita`/BU fallback) · `monitor-contrato-snapshot.md` (schema do `monitor.json`) · `monitor-data-realities.md` (regras de dado: flag vs `_at`, outliers, PII, receita premissa, métrica impossível).
 
 **Biblioteca (compor, não só clonar):** escolha o **blueprint** pelo modelo de negócio → componha com o **catálogo** → clone os trechos do exemplo canônico. Ao final, **Passo 6 (colheita)**: proponha ao operador o que do monitor novo deve ser promovido pro catálogo/blueprint/exemplo — a biblioteca evolui a cada construção. *(Fase 2: extrair `assets/monitor-kit/` — css/js vendorados com `KIT_VERSION` — **gatilho disparado 2026-07-02** com o 2º monitor construído no catálogo (Colina); extração dirigida por uso, pendente de priorização.)*
 - `references/exemplos/martins/` — **exemplo canônico (visual/UX/filtros/metas — preferir)**: aquisição×recompra, 7 telas, metas pro-rata por vigência + pacing, frente de negócio, filtros Google-Ads-style, `DEALS` único filtrável no cliente, publicado em Cloudflare Pages. Re-sync 2026-07-02.
 - `references/exemplos/colina/` — **exemplo canônico do modelo HÍBRIDO por BU** (BUs recorrentes + BUs one-time/TCV no mesmo cockpit): receita PREMISSA em runtime, **mês fiscal customizado (16→15)**, rateio de canal indireto, **atribuição de funil MQL/SQL/Ganho ao drill** (âncora no mês do lead + trava "só onde há invest"), snapshot analítico anexado pelo renderer, semáforo custo-inverso, Safra 3 visões. Construído 2026-07-02.
-- `references/exemplos/sigo/` — **exemplo canônico do blueprint `recorrencia`** (SaaS B2B: funil demo/SDR, safra de mensalidade, DRE de payback). **Retrofit 2026-07-02 pro UX atual** (3º monitor no padrão do catálogo): metas client-side por vigência com `canais_meta: null` (meta da operação toda → gate `periodMeta()` = todos os canais), **reconciliação CRM×campanhas** (resíduo do join ad_id distribuído fracionado no grão dia×anúncio — merge no `CAMP` reconcilia drill/séries/veredito sem código extra), velocidade 180d mediana. Ver `exemplos/sigo/README.md`.
+- `references/exemplos/sigo/` — **exemplo canônico do padrão VIGENTE (dados-fonte 2.0, v6.4)** e do blueprint `recorrencia` (SaaS B2B: funil demo/SDR, safra, DRE de payback). Re-sync 2026-07-09: gerador **só render-prep** consumindo `derivado/` + importando helpers do `_transform.py` (incluído na pasta como dependência de leitura — o transform é domínio do `motor-dados-vault`); 10 telas (Criativos/Debriefing/Dimensões); `P.dim`/`P.brk`/`P.lib`; selects cascata + sort + tfilt; popup de criativo; rateio de funil com `*`; `config-financeiro.yml` por vigências; reconciliação CRM×campanhas; metas client-side com `canais_meta: null`. Ver `exemplos/sigo/README.md`.
 
 **Gotchas (lições Martins, além dos de `modo-monitor-workflow.md`):** Chart.js datalabels = plugin **por-chart**; popup do filtro fecha no re-render → `event.stopPropagation()`; faturamento por dimensão = **só ganhos**; rateio de produto por `;`; ciclo = **mediana** create→close; metas só aparecem com filtro=canais-meta.
 
@@ -289,6 +316,17 @@ Quando o pedido é um **monitor recorrente** que o gestor acompanha (cockpit viv
 
 ---
 
+> **v3.0.0 (2026-07-09)** — UPGRADE GERAL do modo monitor pro padrão **dados-fonte 2.0**
+> (F7 da decisão `30-decisoes/2026-07-09-dados-fonte-v2.md` do Sigo): gerador restrito a
+> **SÓ RENDER** — joins/derivados/QA migraram pro `motor-dados-vault` (skill nova); gerador
+> consome `derivado/` e importa helpers do `_transform.py`. Absorvido o **Sigo v6.4**
+> (re-sync do exemplo): 10 telas (+Criativos com biblioteca/popup · +Debriefing com
+> cruzamento único por RESULTADO · +Dimensões com funil estimado por rateio `*`),
+> payload `P.dim`/`P.brk`/`P.lib`, sort clicável, filtro de texto no drill, selects em
+> cascata Campanha→Conjunto, forecast adaptativo `natEnd()`, DRE +CPL/CP-SAL/custo-demo
+> com âncora calendário explícita, `config-financeiro.yml` por vigências (CSV legado =
+> fallback p/ vault não migrado). Padrão v2 (gerador fazendo joins de CSV bruto): só em
+> vaults não migrados — todo monitor novo nasce no v3; histórico no git da skill.
 > **v2.2.0 (2026-07-02)** — revisão geral do **Sigo** (v5) com componentes NOVOS no
 > catálogo (`monitor-biblioteca.md` §UX): **tela Qualificadores** (funil por resposta
 > de form + normalização no contrato + funil por SDR), **KPI-card 3 camadas** (Δ +

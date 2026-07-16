@@ -1,0 +1,222 @@
+﻿# =============================================================================
+# contrato-dados-fonte.yml — Sigo ERP
+# Manifesto da camada de dados do vault (dados-fonte 2.0).
+# Decisão: 30-decisoes/2026-07-09-dados-fonte-v2.md
+#
+# Regras:
+# - Toda skill que precisa de dado quantitativo lê ESTE contrato primeiro,
+#   consome derivado/ e só cai pro raw se o derivado não cobre.
+# - colunas_core = padrão cross-projeto (transform trata em qualquer vault).
+#   colunas_extensao = específicas deste projeto (dono + semântica declarados).
+# - O motor NUNCA assume extensão não declarada.
+# =============================================================================
+versao: 0.1.0
+projeto: sigo-erp
+atualizado: 2026-07-09
+
+fontes:
+  planilha:
+    id: 1zSuWNzxkB6panHHEdZmHMFg9Asm43NVjK-dj4nQ-DNs
+    mecanismo: _atualizar-dados.ps1 (curl /export?format=csv&gid= · 2x/dia 7h30+17h30) -> raw/
+    cadeia: feed(raw/) -> _transform.py(derivado/) -> _gerar-monitor.py(monitor.*) -> publica
+    nota_estrutura: scripts _* ficam na raiz (mover o .ps1 re-apontaria a tarefa agendada)
+    nota: >-
+      Fórmulas de cruzamento cortadas na origem em 2026-07-09 (decisão ELT);
+      as colunas cruzadas do bd_ads vêm vazias — o _transform.py reconstrói
+      os joins e materializa o fato em derivado/.
+  flow:
+    projeto_document_id: rthhpf8lb5n2scrlgiowz2et
+    meta_account: act_826565024135443
+    google_account: "8360288373"
+    mecanismo: _extrair-flow.py (MCP JSON-RPC direto, stdlib, zero-Claude; creds de ~/.claude.json -> mcpServers.cockpit)
+    cadencia: segundas 07:00 (tarefa "Sigo ERP - Flow Semanal"; feed das 07:30 consome na sequencia)
+    status: ativo desde 2026-07-09
+
+tabelas:
+  index_anuncios:
+    arquivo: raw/index-anuncios-completo.csv
+    aba: bd_campaing_index
+    gid: "932907241"
+    tipo: dimensao
+    padrao: core-identico-cross-projeto
+    grao: 1 linha por ad_id
+    chave: [ad_id]
+    pii: false
+    colunas_core: [icm_product_map, funnel, canal, ad_id, nome_campanha, nome_conjunto, nome_anuncio]
+    qa:
+      - check: ad_id duplicado
+        severidade: alta   # join explode — duplica linhas do fato
+        politica: keep-first + WARN alto
+    nota: dimensao SCD tipo 1 — rename na origem reescreve o historico (aceito, registrado)
+
+  campanhas:
+    arquivo: raw/campanhas-completo.csv
+    aba: bd_ads
+    gid: "57657577"
+    tipo: fato
+    padrao: core-identico-cross-projeto
+    grao: 1 linha por data x ad_id
+    chave: [data, ad_id]
+    pii: false
+    colunas_core: [data, ad_id, investimento, impressões, alcance, ad_clicks, calls, mensagens,
+                   conversões, lead, oportunidades, ads_growthpack_id]
+    colunas_legadas_vazias:  # cruzamentos cortados na origem 2026-07-09 (vieram 100% vazias no export das ~11h)
+      [mql, sql, scheduled_meeting, show_meeting, proposal_sent, in_negotiation, win, lost,
+       total_value, icm_product_map, funnel, canal, nome_campanha, nome_conjunto, nome_anuncio]
+    joins_reconstruidos_no_motor:   # _transform.py (2026-07-09) -> derivado/fato-ads-enriquecido.csv
+      nomes_canal: "join com index_anuncios por ad_id (fallback: valor legado do CSV se órfão)"
+      funil: >-
+        derive_funil — eventos por (ad_id, create_at do lead). ÂNCORA SAFRA:
+        flag TRUE conta no DIA DE CRIAÇÃO do lead, não na data do evento
+        (engenharia reversa da fórmula da planilha, validada por golden test
+        vs campanhas congelado @ git HEAD 27/06: cli e fat com diferença ZERO;
+        lead/sal diff <0.1%). fat = soma do total_value cru dos wins (igual à
+        fórmula; valor limpo mens+impl vive no bloco vendas do monitor.json).
+    qa:
+      - check: data+ad_id duplicado (ads_growthpack_id deveria impedir, mas pode falhar)
+        severidade: alta   # soma métricas 2x
+        politica: keep-first + WARN com lista
+    sentinela:
+      descricao: 1a linha da aba — easter egg do operador (nascimento 12/08/1999), teste de integridade
+      match: { ad_id: manual, data: "08/12/1999" }
+      politica: excluir do calculo; ALERTAR se sumir (canario do export)
+
+  crm:
+    arquivo: raw/crm-completo.csv
+    aba: leads_pipeline
+    gid: "1055130169"
+    tipo: fato
+    padrao: base-padrao-com-extensoes   # schema nucleo comum; campos/preenchimento variam por projeto
+    grao: 1 linha por deal
+    chave: [deal_growthpack_id]
+    pii: true          # email/phone/cnpj em claro -> git-ignored
+    join: { com: campanhas, por: ad_id }
+    colunas_extensao:
+      temperatura: { dono: closer, semantica: projecao de SE e QUANDO o negocio fecha }
+      score: { dono: SDR, semantica: qualidade do lead + potencial de fechamento }
+    qa:
+      - check: deal_growthpack_id duplicado
+        severidade: alta   # infla funil e receita
+        politica: keep-first + WARN com lista
+    notas:
+      - alguns campos vem corrompidos como % da celula na origem (phone, mql_at) — tratar no transform
+      - datas em serial E dd/mm/yyyy — parser defensivo (ja existente no gerador)
+
+  leads:
+    arquivo: raw/leads-completo.csv
+    aba: leads
+    gid: "1364600585"
+    tipo: fato
+    padrao: base-padrao-com-extensoes
+    grao: 1 linha por lead
+    chave: [lead_id]
+    pii: true          # email/phone/IP/endereco/user_agent -> git-ignored
+    join: { com: campanhas, por: ad_id }
+    estado: quase-vazia em 2026-07-09 (base padrao em populacao) — MinBytes=100 no feed
+    colunas_core: [lead_id, ad_id, create_at, update_at, canal, utm_campaign, utm_medium, utm_content,
+                   gclid, fbclid, quality_score, total_value, wins]
+    riqueza_notavel:   # habilita cruzamento profundo device/geo/hora do lado CRM (nivel do lead)
+      device: user_agent
+      geo: [state, city, cep]
+      hora: create_at
+      qualificacao: [qualificador_tamanho, tier_tamanho, qualificador_cargo, decision_committee, segmento]
+    qa:
+      - check: lead_id duplicado
+        severidade: alta   # infla topo
+        politica: keep-first + WARN com lista
+
+  termos_google:
+    arquivo: raw/termos-google-completo.csv
+    aba: bd_gads_terms
+    gid: "1169109529"
+    tipo: fato
+    grao: snapshot agregado por termo x grupo x campanha (sem data)
+    pii: false
+    consumidores: [darwin, monitor (secao termos)]
+    nota: substituivel por keyword_performance do flow na F4
+
+  bd_buy:
+    presente: false    # nao existe no growthpack Sigo; parte da familia padrao em outros projetos
+
+extracoes_flow:   # F4 (2026-07-09) · grao DIA + ad_id desde 2026-07-10 (decisao do operador) —
+  # _extrair-flow.py, segundas 07:00, escreve em raw/. Sobrescrita com trava igual ao feed.
+  # FATOS diarios sao git-ignored (volume; reproduziveis do warehouse); dims e saldo commitaveis.
+  # O payload do monitor (P.brk) segue MENSAL — o gerador agrega dia->mes no load_brk.
+  flow-meta-ads.csv:        { tipo: dimensao, grao: 1 linha por ad_id (nome/adset/campaign/creative_id) }
+  flow-meta-criativos.csv:  { tipo: dimensao, grao: 1 linha por creative_id (title/body/CTA/image_url),
+                              pendencia_f5: "655 linhas p/ 304 ids (25 dups — dedup keep-latest no transform); image_url vem VAZIO (asset via flow-meta-imagens por hash); body so em 116; 70 creatives usados por ads fora da dim — refinar colunas (image_hash/object_story_spec/thumbnail) na F5" }
+  flow-meta-imagens.csv:    { tipo: dimensao, grao: 1 linha por image_id (url CDN) }
+  dim-geotargets-google.csv: { tipo: dimensao, grao: 1 linha por criteria_id (nome/canonico/tipo — 5.311 BR),
+                               origem: "CSV oficial Google (developers.google.com/google-ads/api/data/geotargets, versao 2026-07-06) filtrado Country Code=BR; atualizar manualmente quando o Google publicar versao nova",
+                               uso: "_extrair-flow.py resolve geoTargetConstants/NNN -> nome no flow-google-geo (mantem *_id)" }
+  flow-meta-geo.csv:        { tipo: fato, grao: ad_id x DIA x regiao, metricas: [spend, impressions, clicks], gitignore: true }
+  flow-meta-demo.csv:       { tipo: fato, grao: ad_id x DIA x idade x genero, metricas: [spend, impressions, clicks], gitignore: true }
+  flow-meta-device.csv:     { tipo: fato, grao: ad_id x DIA x device_platform, metricas: [spend, impressions, clicks], gitignore: true }
+  flow-meta-hora.csv:       { tipo: fato, grao: ad_id x DIA x hora (campaign_name junto), metricas: [spend, impressions, clicks], gitignore: true }
+  flow-google-keywords.csv: { tipo: fato, grao: DIA x campanha(id+nome) x grupo(id+nome) x keyword x match, metricas: [impressions, clicks, cost, conversions], gitignore: true, nota: substitui a extracao manual do darwin; cruzamento com index por CONJUNTO (ad_group) — keyword nao tem ad_id }
+  flow-google-geo.csv:      { tipo: fato, grao: DIA x campanha(id+nome) x regiao x cidade (nomes resolvidos via dim-geotargets; *_id preservado), metricas: [impressions, clicks, cost, conversions], gitignore: true }
+  flow-saldo-contas.csv:    { tipo: fato, grao: data x conta, modo: APPEND (historico local — a fonte so tem snapshot),
+                              semantica: "meta pos-paga: saldo = consumido nao faturado · google pre-paga: saldo = limite aprovado - servido (account_budget)" }
+  lacunas_aceitas:
+    - demografia Google (sem stream Nekt)
+    - conversoes por breakdown Meta (coluna actions e ARRAY e o gateway bloqueia UNNEST) — breakdowns Meta so custo/volume
+    - geo Google NAO desce de campanha (user_location_performance sem ad_group/ad — limite da API; sondado 2026-07-10)
+    - hora Meta desce a ad_id, mas conversao por hora nao existe (mesma limitacao de breakdown)
+
+quebras_de_serie:   # datas em que definicao/tracking mudou — analises longitudinais leem AQUI
+  - data: 2025-01
+    o_que: tracking de win no pipeline comeca (safras 2024-07..2024-12 tem invest mas zero win registrado)
+    impacto: metricas de fundo de funil/receita pre-2025-01 sao artefato de implantacao, nao performance
+  - data: 2025-09
+    o_que: campos de receita limpa (value_mensalidade/value_implementação) passam a ser populados (parcial ate ~2025-11)
+    impacto: roas/ticket por safra pre-2025-09 subestimados; baseline-metricas corta a serie no 1o mes > 0 por regra
+  - data: 2026-06-24
+    o_que: 22 deals com win_at carimbado em lote no CRM; corrigido na origem em 2026-07-03
+    impacto: analises de ganhos/mes pre-2026-07-03 distorcidas; residual 1 deal de jun contado em abr
+  - data: 2026-07-09
+    o_que: formulas de cruzamento cortadas no growthpack (decisao ELT)
+    impacto: colunas cruzadas de bd_ads congelam; joins passam ao motor na F2
+
+derivados:   # so o _transform.py escreve; catalogo cresce conforme demanda das skills
+  status: materializados em 2026-07-09 (F2 completa)
+  fato_ads_enriquecido:
+    arquivo: derivado/fato-ads-enriquecido.csv
+    grao: 1 linha por data x ad_id (datas ISO, numeros com ponto)
+    colunas: [data, ad_id, canal, campanha, conjunto, anuncio, investimento, impressoes,
+              clicks, alcance, lead, sal, sql, demo_ag, demo_re, cli, fat]
+    pii: false   # agregado por anuncio -> commitavel
+  qa_report:
+    arquivo: derivado/qa-report.json
+    conteudo: achados dos gates da ultima rodada (nivel/check/msg + ids amostrados)
+    pii: false
+  dim_criativo:   # F5 (2026-07-09)
+    arquivo: derivado/dim-criativo.csv
+    grao: 1 linha por ad_id do index
+    conteudo: atributos parseados da nomenclatura (10-fundacao/taxonomia.yml, geracoes versionadas —
+      formato/consciencia/gancho/avatar/variacao + conjunto funil/tipo/publico/geo/demo +
+      campanha status/obj/produto/temp) + copy do flow (creative_id/title/body/cta)
+    pii: false
+    cobertura_2026_07: 126 de 572 ads gia-v2 (legado pre-taxonomia sem atributos, por design);
+      copy do flow em 284 ads
+    consumidores: [monitor (tela Debriefing, via P.dim), darwin, falconi, growth-review]
+  baseline_metricas:   # F7.1 (2026-07-09) — fato de baselines do projeto
+    arquivo: derivado/baseline-metricas.json
+    grao: metrica x janela (todo/12m/6m/3m) x estatistica (n/mediana/media/melhor/pior) + series_mensais
+    regras: mediana=baseline · mes corrente excluido · melhor/pior so com n>=3 · metricas de safra
+      (roas/ticket/fundo) excluem os 2 ultimos meses fechados (maturidade) · serie inicia no 1o mes
+      com valor > 0 (zero pre-tracking e artefato — ver quebras_de_serie 2025-01 e 2025-09)
+    receita: { recorrente: value_mensalidade, pontual: "value_implementação", tcv: "tcv_meses x mens + impl" }
+    ausentes_sigo: [recompra/retencao (SaaS 1 deal; bd_buy ausente), ticket_cotacoes (proposal_sent e flag), arpu (sem base de ativos)]
+    pii: false   # agregados mensais -> commitavel
+    consumidores: [arquimedes, sobral, breakeven-builder, falconi]
+  # payload do notify (F6): calculado inline pelo _notify.py (fato + monitor.json +
+  # config-financeiro + flow-saldo-contas + qa-report) — sem derivado materializado.
+  planejados: []
+
+achados_qa:   # o que os gates pegaram (corrigir na origem; o motor dedupa keep-first e segue)
+  - data: 2026-07-09
+    check: deal_growthpack_id duplicado no CRM
+    resultado: 21 deals duplicados -> pendencia de correcao no growthpack
+  - data: 2026-07-09
+    check: ad_id duplicado no index
+    resultado: 972 linhas duplicadas IDENTICAS (30 ad_ids legados Google, linha por keyword) — benigno, sem acao

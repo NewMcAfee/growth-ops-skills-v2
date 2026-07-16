@@ -11,10 +11,11 @@
 
 ## Qualidade do dado (gviz distorce)
 
-gviz passa pela Visualization API e pode reinterpretar tipos por locale (datas, decimais). Se o QA (`scan-fonte.py`) acusar distorção **que não existe na planilha**:
+> **Nota de ordem vigente (R10/R11):** o endpoint padrão do motor JÁ é `/export?gid=` (o mais fiel), com gviz como **fallback automático** quando a org bloqueia o export anônimo. Distorção de tipo por locale só é possível quando o download veio do fallback gviz (confira o `fallback automático` no `_download.log`).
 
-- **Fallback p/ endpoint de export cru** (R2): `https://docs.google.com/spreadsheets/d/{ID}/export?format=csv&gid={GID}`. Esse devolve o CSV mais fiel ao display, mas exige `gid` (não aceita nome de aba). Pegar o gid abrindo a aba no navegador (`...#gid=NUMERO`).
-- Editar `feed-download.ps1`? **Não.** Se precisar do endpoint export, isso é uma variação estrutural — documentar e ajustar o motor na skill, não no vault.
+Se o QA (`scan-fonte.py`) acusar distorção **que não existe na planilha** e o log mostra que a aba veio via gviz:
+- A causa raiz é o bloqueio do `/export` pela org (R11) — a distorção é o preço do fallback. Avalie com o operador liberar o export na planilha/org; senão, trate a coluna afetada no transform e registre no contrato.
+- Editar `feed-download.ps1`? **Não.** Variação estrutural se documenta e ajusta no motor da skill, não no vault.
 
 ## PowerShell
 

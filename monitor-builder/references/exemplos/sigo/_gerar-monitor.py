@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # =============================================================================
 # _gerar-monitor.py — Sigo ERP · Monitor de Aquisição (cockpit do gestor) · v3
 # -----------------------------------------------------------------------------
@@ -34,18 +34,36 @@
 #
 # Definições canônicas (confirmadas):
 #   MQL operacional = SAL (flag `sal`) · `mql` do CRM = qualif. do form.
-#   Demo realizada  = show_meeting (data show_meeting_at) · META 100/mês.
+#   Demo realizada  = show_meeting (data show_meeting_at) · META 92/mês.
 #   Close-rate      = Clientes ÷ Demos realizadas. 1 demo/cliente = por lead.
+#
+# v6 (dados-fonte 2.0 — decisão 30-decisoes/2026-07-09-dados-fonte-v2.md):
+#  - As fórmulas de cruzamento do growthpack foram CORTADAS na origem (ELT).
+#    O motor reconstrói os 2 joins a partir do bruto:
+#    (a) bd_ads × bd_campaing_index por ad_id → canal + nomes (load_index);
+#    (b) bd_ads × leads_pipeline por (ad_id, create_at) → funil por linha
+#        (derive_funil) — ÂNCORA SAFRA (evento conta no dia de criação do
+#        lead), validada por golden test vs planilha congelada @ git HEAD
+#        (cli e fat com diferença ZERO; demais eventos diff ≤9 explicado
+#        pela evolução do CRM pós-27/06).
+#  - QA gates (contrato-dados-fonte.yml): dedup ad_id no index · dedup
+#    dia×anúncio no bd_ads · dedup deal_growthpack_id no CRM — keep-first +
+#    WARN. Sentinela (ad_id=manual, 12/08/1999) = canário: ALERTA se sumir.
 # =============================================================================
 import csv, json, sys
 from datetime import datetime, date, timedelta
 from pathlib import Path
 
+# v6.1: joins/QA vivem no _transform.py (estágio anterior da cadeia); este
+# script consome derivado/fato-ads-enriquecido.csv + raw/crm (payload de leads)
+# e importa os helpers de parsing de lá (1 fonte de verdade, sem drift).
+from _transform import (RAW, DERIV, FATO, MIN_ANO, br_num, br_int, pdate, iso,
+                        istrue, canal_norm, load_crm, load_index,
+                        taxo_parsers, parse_nome, parse_campanha)
+
 csv.field_size_limit(10**7)
 BASE = Path(__file__).resolve().parent
-CAMP = BASE / "campanhas-completo.csv"
-CRM  = BASE / "crm-completo.csv"
-TERMS = BASE / "termos-google-completo.csv"
+TERMS = RAW / "termos-google-completo.csv"
 OUT  = BASE / "monitor.html"
 OUT_JSON = BASE / "monitor.json"        # snapshot estruturado p/ skills de análise (git-ignored, embute CRM analítico)
 CONTRATO = BASE / "contrato-cockpit.yml"
@@ -54,11 +72,11 @@ HOJE = datetime.now()
 # --- contrato: metas lidas em runtime (troca de quarter sem tocar código) ----
 # Fallback gracioso pro META_DEFAULT se pyyaml ou o contrato faltarem (feed nunca quebra).
 META_DEFAULT = {
-    "demos_real_mes": 100,  "demos_real_q": 300,
-    "demos_agend_mes": 120, "demos_agend_q": 360,
-    "sql_semana": 25, "clientes_q": 40, "valor_total_q": 100000,
-    "sal_sql_rate": 0.50, "show_rate": 0.70, "close_rate": 0.20, "budget_q": 50000,
-    "q1": {"sal_sql": 0.40, "show": 0.60, "close": 0.15},
+    "demos_real_mes": 92,   "demos_real_q": 276,
+    "demos_agend_mes": 114, "demos_agend_q": 342,
+    "sql_semana": 31, "clientes_q": 55, "valor_total_q": 122500,
+    "sal_sql_rate": 0.55, "show_rate": 0.75, "close_rate": 0.20, "budget_q": 70000,
+    "q1": {"sal_sql": 0.452, "show": 0.668, "close": 0.16},
     "quarter_vigencia": None,
 }
 def load_contrato_raw():
@@ -83,16 +101,16 @@ def load_meta():
     if not m:
         return dict(META_DEFAULT)
     tx, base = m.get("taxas", {}) or {}, m.get("baseline_q_anterior", {}) or {}
-    dmes, dames = m.get("demos_real_mes", 100), m.get("demos_agend_mes", 120)
+    dmes, dames = m.get("demos_real_mes", 92), m.get("demos_agend_mes", 114)
     return {
         "demos_real_mes": dmes,   "demos_real_q": m.get("demos_real_q", dmes*3),
         "demos_agend_mes": dames, "demos_agend_q": m.get("demos_agend_q", dames*3),
-        "sql_semana": m.get("sql_semana", 25),
-        "clientes_q": m.get("clientes_q", 40), "valor_total_q": m.get("valor_total_q", 100000),
-        "sal_sql_rate": tx.get("sal_sql", 0.50), "show_rate": tx.get("show", 0.70),
-        "close_rate": tx.get("close", 0.20), "budget_q": m.get("budget_q", 50000),
-        "q1": {"sal_sql": base.get("sal_sql", 0.40), "show": base.get("show", 0.60),
-               "close": base.get("close", 0.15)},
+        "sql_semana": m.get("sql_semana", 31),
+        "clientes_q": m.get("clientes_q", 55), "valor_total_q": m.get("valor_total_q", 122500),
+        "sal_sql_rate": tx.get("sal_sql", 0.55), "show_rate": tx.get("show", 0.75),
+        "close_rate": tx.get("close", 0.20), "budget_q": m.get("budget_q", 70000),
+        "q1": {"sal_sql": base.get("sal_sql", 0.452), "show": base.get("show", 0.668),
+               "close": base.get("close", 0.16)},
         "quarter_vigencia": m.get("quarter_vigencia"),
     }
 META = load_meta()
@@ -119,41 +137,8 @@ def qual_norm(campo, v):
         except ValueError:
             pass
     return v[:1].upper() + v[1:]
-TGT_CUSTO_DEMO = META["budget_q"] / META["demos_real_q"]   # ~R$167
-TGT_CAC        = META["budget_q"] / META["clientes_q"]      # ~R$1.250
-MIN_ANO = 2024   # base completa tem outliers de data (1999/2023) — descarta lixo pré-2024
-
-# --- parsing -----------------------------------------------------------------
-def br_num(s):
-    if s is None: return 0.0
-    s = str(s).strip().replace("R$", "").replace("%", "").replace("\xa0", "")
-    s = s.replace(".", "").replace(",", ".").strip()
-    if s in ("", "-", "—"): return 0.0
-    try: return float(s)
-    except ValueError: return 0.0
-def br_int(s): return int(round(br_num(s)))
-def pdate(s):
-    if not s: return None
-    s = str(s).strip()
-    if not s or s.endswith("%"): return None
-    # serial date do Sheets/Excel (epoch 1899-12-30): parte das linhas do
-    # leads_pipeline vem como número (ex "46186") em vez de dd/mm/yyyy. O range
-    # guard (~1982..2119) evita confundir com IDs ou contadores pequenos.
-    try:
-        n = float(s.replace(",", "."))
-        if 30000 <= n <= 80000:
-            return date(1899, 12, 30) + timedelta(days=int(n))
-    except ValueError:
-        pass
-    try: return datetime.strptime(s[:10], "%d/%m/%Y").date()
-    except ValueError: return None
-def iso(d): return d.strftime("%Y-%m-%d") if d else ""
-def istrue(s): return str(s or "").strip().upper() == "TRUE"
-def canal_norm(c):
-    c = (c or "").strip().lower()
-    if "meta" in c or "facebook" in c or c in ("fb", "ig", "instagram"): return "meta"
-    if "google" in c or "gads" in c or "gdn" in c: return "google"
-    return c or "—"
+TGT_CUSTO_DEMO = META["budget_q"] / META["demos_real_q"]   # ~R$253
+TGT_CAC        = META["budget_q"] / META["clientes_q"]      # ~R$1.272
 
 # --- quarter -----------------------------------------------------------------
 def quarter_bounds(dt):
@@ -190,43 +175,67 @@ if HOJE.date() > VEND:
 def in_v(d): return d is not None and VSTART <= d <= VEND
 
 # --- carga -------------------------------------------------------------------
-def load_campanhas():
-    # Schema bd_ads (snake_case, funil granular por linha dia×anúncio).
-    # 'sal' (evento de conversão por anúncio) ← coluna `mql` do bd_ads (= o "MQL"
-    # antigo que o operador definiu como SAL). Demo agendada/realizada/cliente
-    # ← scheduled_meeting/show_meeting/win. Faturamento ← total_value.
+def load_fato():
+    """Consome derivado/fato-ads-enriquecido.csv — materializado pelo
+    _transform.py (joins bd_ads × index × CRM com âncora safra + QA gates).
+    Datas ISO e números com ponto (formato do derivado, não da origem BR)."""
     rows = []
-    with open(CAMP, encoding="utf-8") as f:
+    with open(FATO, encoding="utf-8") as f:
         for r in csv.DictReader(f):
-            d = pdate(r.get("data"))
-            if not d or d.year < MIN_ANO: continue
             rows.append({
-                "data": d, "ad_id": (r.get("ad_id") or "").strip(),
-                "canal": canal_norm(r.get("canal")),
-                "campanha": (r.get("nome_campanha") or "—").strip() or "—",
-                "conjunto": (r.get("nome_conjunto") or "—").strip() or "—",
-                "anuncio": (r.get("nome_anuncio") or "—").strip() or "—",
-                "inv": br_num(r.get("investimento")),
-                "sal": br_int(r.get("mql")),
-                "demo_ag": br_int(r.get("scheduled_meeting")),
-                "demo_re": br_int(r.get("show_meeting")),
-                "cli": br_int(r.get("win")),
-                "fat": br_num(r.get("total_value")),
-                "impr": br_int(r.get("impressões") or r.get("impressoes")),
-                "clicks": br_int(r.get("ad_clicks")),
-                # v5: funil completo por anúncio (CPL, lead→SAL) + alcance (frequência)
-                "lead": br_int(r.get("lead")),
-                "sql": br_int(r.get("sql")),
-                "alcance": br_int(r.get("alcance")),
+                "data": datetime.strptime(r["data"], "%Y-%m-%d").date(),
+                "ad_id": r["ad_id"], "canal": r["canal"],
+                "campanha": r["campanha"], "conjunto": r["conjunto"],
+                "anuncio": r["anuncio"],
+                "inv": float(r["investimento"] or 0),
+                "sal": int(r["sal"] or 0),
+                "demo_ag": int(r["demo_ag"] or 0),
+                "demo_re": int(r["demo_re"] or 0),
+                "cli": int(r["cli"] or 0),
+                "fat": float(r["fat"] or 0),
+                "impr": int(r["impressoes"] or 0),
+                "clicks": int(r["clicks"] or 0),
+                "lead": int(r["lead"] or 0),
+                "sql": int(r["sql"] or 0),
+                "alcance": int(r["alcance"] or 0),
             })
     return rows
-def load_crm():
-    with open(CRM, encoding="utf-8") as f:
-        return list(csv.DictReader(f))
 
 def load_config_fin():
-    """Config financeiro manual do vault (commitável, sem PII). 1 linha por mês.
-    Colunas: mes(YYYY-MM), fee, margem(0-1 ou %), tcv_meses, outras_receitas, outros_custos."""
+    """Config financeiro DECLARADO (F3 — dados-fonte 2.0): config-financeiro.yml
+    com blocos de VIGÊNCIA (`de: YYYY-MM` + valores; edita 1 bloco no reajuste).
+    O motor expande pra dict mensal — shape do payload `fin` inalterado (render
+    não muda). Fallback: config-financeiro.csv legado (1 linha/mês). Regra de
+    ouro: aqui só entra o que NÃO existe em nenhum dado (fee, margem, regras);
+    o que dá pra calcular do dado é derivado, não config."""
+    py_cfg = BASE / "config-financeiro.yml"
+    if py_cfg.exists():
+        try:
+            import yaml
+            cfg = yaml.safe_load(py_cfg.read_text(encoding="utf-8")) or {}
+            vigs = sorted(cfg.get("vigencias") or [], key=lambda v: str(v.get("de")))
+            if vigs:
+                fin, cur, i = {}, None, 0
+                first = str(vigs[0]["de"])[:7]
+                y, m = int(first[:4]), int(first[5:7])
+                while (y, m) <= (HOJE.year, HOJE.month):
+                    key = f"{y:04d}-{m:02d}"
+                    while i < len(vigs) and str(vigs[i]["de"])[:7] <= key:
+                        cur = vigs[i]; i += 1
+                    mg = float(cur.get("margem") or 0)
+                    if mg > 1: mg /= 100.0   # operador digitou em %
+                    # custo_tech (CRM, construtor de páginas…) soma nos outros_custos
+                    # do DRE — campo separado no YAML pra ficar declarado por nome.
+                    oc = float(cur.get("outros_custos") or 0) + float(cur.get("custo_tech") or 0)
+                    fin[key] = {"fee": float(cur.get("fee") or 0), "margem": mg,
+                                "tcv_meses": float(cur.get("tcv_meses") or 6),
+                                "outras_receitas": float(cur.get("outras_receitas") or 0),
+                                "outros_custos": oc}
+                    m += 1
+                    if m > 12: m, y = 1, y + 1
+                return fin
+        except Exception as e:
+            print(f"WARN: config-financeiro.yml ilegível ({e}) — fallback CSV.")
     p = BASE / "config-financeiro.csv"
     fin = {}
     if not p.exists():
@@ -370,6 +379,143 @@ def compute_resid(campanhas, crm):
              for e, k in enumerate(EVK)}
     return {"rows": rows, "cols": ["row", "sal", "demo_ag", "demo_re", "cli"], "recon": recon}
 
+# --- breakdowns do flow (F5.1): geo/idade×gênero/device/hora + geo Google ------
+# Fonte: raw/flow-*.csv (extração das segundas, GRÃO MENSAL). Opcionais — sem
+# eles a tela Dimensões avisa. Interned; atributos do anúncio (taxonomia)
+# parseados por ad_id p/ o cruzamento Debriefing×Dimensão (só Meta: os nomes
+# gia-v2 vivem lá; conversões por breakdown Meta não existem — lacuna UNNEST).
+def _rd_flow(name):
+    p = RAW / name
+    if not p.exists(): return []
+    with open(p, encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+def load_lib(aI):
+    """Biblioteca de criativos (F5.2): array PARALELO ao intern de anúncios —
+    [img, title, cta, body] por NOME de anúncio (1º ad com asset vence).
+    img: creative.image_hash -> adimages.url (full-size); fallback thumbnail_url.
+    URLs do CDN do Meta expiram (~semanas) — a extração das segundas renova."""
+    ads_f, crt_f, img_f = _rd_flow("flow-meta-ads.csv"), _rd_flow("flow-meta-criativos.csv"), _rd_flow("flow-meta-imagens.csv")
+    if not ads_f: return None
+    imgs = {(r.get("id") or "").split(":")[-1]: (r.get("url") or "") for r in img_f}
+    crt = {}
+    for r in crt_f:
+        cid = (r.get("creative_id") or "").strip()
+        if cid: crt[cid] = r    # keep-last (versão mais recente)
+    ad_asset = {}
+    for r in ads_f:
+        c = crt.get((r.get("creative_id") or "").strip(), {})
+        img = imgs.get((c.get("image_hash") or "").strip(), "") or (c.get("thumbnail_url") or "")
+        ad_asset[(r.get("ad_id") or "").strip()] = [img, (c.get("title") or "").strip(),
+                                                    (c.get("call_to_action_type") or "").strip(),
+                                                    (c.get("body") or "").strip()[:280]]
+    # nome do anúncio -> asset (via index ad_id->nome; 1º com imagem vence)
+    idx = load_index(verbose=False)
+    by_name = {}
+    for ad, ix in idx.items():
+        a = ad_asset.get(ad)
+        if not a: continue
+        cur = by_name.get(ix["anuncio"])
+        if cur is None or (not cur[0] and a[0]):
+            by_name[ix["anuncio"]] = a
+    return [by_name.get(n) or 0 for n in aI.l]
+
+def load_brk(taxo, campanhas):
+    rd = _rd_flow
+    geo, demo, dev, hora, ggeo = (rd("flow-meta-geo.csv"), rd("flow-meta-demo.csv"),
+                                  rd("flow-meta-device.csv"), rd("flow-meta-hora.csv"),
+                                  rd("flow-google-geo.csv"))
+    if not (geo or demo or dev or hora or ggeo):
+        return None
+    def num(r, k): return round(float(r.get(k) or 0), 2)
+    def n0(r, k): return int(float(r.get(k) or 0))
+    # raw do flow é DIA desde 2026-07-10 (era mensal) — o payload segue MENSAL:
+    # agrega aqui (mes = data[:7]; tolera os dois formatos). Grão dia mora no raw.
+    def mes(r): return ((r.get("mes") or r.get("data") or ""))[:7]
+    def agg3(rows, key_fn):
+        m = {}
+        for r in rows:
+            a = m.setdefault(key_fn(r), [0.0, 0, 0])
+            a[0] += num(r, "spend"); a[1] += n0(r, "impressions"); a[2] += n0(r, "clicks")
+        return [[*k, round(v[0], 2), v[1], v[2]] for k, v in m.items()]
+    adI, mI = Interner(), Interner()
+    regI, ageI, devI, hcI, gcI, grI = Interner(), Interner(), Interner(), Interner(), Interner(), Interner()
+    g_rows = agg3(geo, lambda r: (adI.idx(r["ad_id"]), mI.idx(mes(r)), regI.idx(r["region"])))
+    d_rows = agg3(demo, lambda r: (adI.idx(r["ad_id"]), mI.idx(mes(r)), ageI.idx(r["age"]),
+                                   (r.get("gender") or "u")[:1]))
+    v_rows = agg3(dev, lambda r: (adI.idx(r["ad_id"]), mI.idx(mes(r)), devI.idx(r["device_platform"])))
+    # hora por AD (F7.2: stream tem ad_id) — habilita o rateio de funil por hora;
+    # fallback pro formato legado (campanha) via hcI se ad_id ausente
+    h_rows = agg3(hora, lambda r: (adI.idx(r["ad_id"]) if r.get("ad_id") else
+                                   -1 - hcI.idx(r.get("campaign_name") or "—"),
+                                   mI.idx(mes(r)), (r.get("hora") or "")[:2]))
+    # google geo: payload no nível REGIÃO (cidade fica no raw + top cidades full-period)
+    greg, gcid = {}, {}
+    for r in ggeo:
+        k = (gcI.idx(r.get("campaign_name") or "—"), mI.idx(mes(r)), grI.idx(r.get("regiao") or "—"))
+        a = greg.setdefault(k, [0.0, 0, 0, 0.0])
+        a[0] += num(r, "cost"); a[1] += n0(r, "impressions"); a[2] += n0(r, "clicks"); a[3] += float(r.get("conversions") or 0)
+    gg_rows = [[k[0], k[1], k[2], round(v[0], 2), v[1], v[2], round(v[3], 1)] for k, v in greg.items()]
+    # atributos do anúncio por ad_id (nome vem do index; parse pela taxonomia)
+    idx = load_index(verbose=False)
+    attrs = []
+    for ad in adI.l:
+        an = parse_nome(taxo["anuncio"], (idx.get(ad) or {}).get("anuncio", ""))
+        attrs.append({"g": an.get("geracao", "legado"), "c": an.get("consciencia", ""),
+                      "h": an.get("gancho", ""), "a": an.get("avatar", ""), "f": an.get("formato", "")})
+    # funil por (ad × mês) do fato — base do RATEIO por share de investimento
+    # (funil estimado por dimensão de entrega: a API não dá conversão por breakdown)
+    fun = {}
+    known = set(adI.m)
+    for c in campanhas:
+        if c["ad_id"] not in known: continue
+        k = (adI.idx(c["ad_id"]), mI.idx(c["data"].strftime("%Y-%m")))
+        f = fun.setdefault(k, [0, 0, 0, 0, 0, 0.0, 0.0])
+        f[0] += c["lead"]; f[1] += c["sal"]; f[2] += c["demo_ag"]
+        f[3] += c["demo_re"]; f[4] += c["cli"]; f[5] += c["fat"]; f[6] += c["inv"]
+    fun_rows = [[k[0], k[1], v[0], v[1], v[2], v[3], v[4], round(v[5], 2), round(v[6], 2)]
+                for k, v in fun.items()]
+    # F7.3: funil por CAMPANHA×mês (rateio dos breakdowns Google — geo não desce
+    # de campanha na API; chave = nome, igual nos dois lados via API do Google)
+    gfun = {}
+    for c in campanhas:
+        if c["canal"] != "google": continue
+        k = (gcI.idx(c["campanha"]), mI.idx(c["data"].strftime("%Y-%m")))
+        f = gfun.setdefault(k, [0, 0, 0, 0, 0, 0.0])
+        f[0] += c["lead"]; f[1] += c["sal"]; f[2] += c["demo_ag"]
+        f[3] += c["demo_re"]; f[4] += c["cli"]; f[5] += c["fat"]
+    gfun_rows = [[k[0], k[1], v[0], v[1], v[2], v[3], v[4], round(v[5], 2)] for k, v in gfun.items()]
+    # cidades (full-period, top 300 por custo) COM funil estimado por rateio:
+    # evento(campanha,mês) × share do custo da cidade no custo da campanha no mês
+    gden = {}
+    for r in ggeo:
+        k = (gcI.idx(r.get("campaign_name") or "—"), mI.idx(mes(r)))
+        gden[k] = gden.get(k, 0.0) + num(r, "cost")
+    gcid = {}
+    for r in ggeo:
+        cid = (r.get("cidade") or "").strip()
+        if not cid: continue
+        k = (gcI.idx(r.get("campaign_name") or "—"), mI.idx(mes(r)))
+        cost = num(r, "cost")
+        c = gcid.setdefault((cid, r.get("regiao") or ""), [0.0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        c[0] += cost; c[1] += n0(r, "impressions"); c[2] += n0(r, "clicks"); c[3] += float(r.get("conversions") or 0)
+        fn, d = gfun.get(k), gden.get(k, 0.0)
+        if fn and d > 0:
+            sh = cost / d
+            for i, ev in enumerate(fn):
+                c[4 + i] += ev * sh
+    top_cid = sorted(gcid.items(), key=lambda kv: -kv[1][0])[:300]
+    gc_rows = [[c, reg, round(v[0], 2), v[1], v[2], round(v[3], 1),
+                round(v[4], 1), round(v[5], 1), round(v[6], 1), round(v[7], 1),
+                round(v[8], 2), round(v[9], 2)] for (c, reg), v in top_cid]
+    return {"meses": mI.l, "attrs": attrs, "funil": fun_rows, "gfun": gfun_rows,
+            "geo": {"regs": regI.l, "rows": g_rows},
+            "demo": {"ages": ageI.l, "rows": d_rows},
+            "dev": {"devs": devI.l, "rows": v_rows},
+            "hora": {"camps": hcI.l, "rows": h_rows},
+            "ggeo": {"camps": gcI.l, "regs": grI.l, "rows": gg_rows},
+            "gcid": {"rows": gc_rows}}
+
 # --- payload granular --------------------------------------------------------
 def build_payload(campanhas, crm):
     crm_max=max((pdate(r.get("create_at")) for r in crm if pdate(r.get("create_at"))), default=None)
@@ -453,6 +599,15 @@ def build_payload(campanhas, crm):
                           round(f2, 2), round(br_num(r.get("value_mensalidade")), 2)])
     print(f"vendas atribuídas via ad_id: {v_match}/{v_tot} ganhos com match")
 
+    # dim (v6.2/F5): atributos da nomenclatura (taxonomia gia-v2) em arrays
+    # PARALELOS aos interns (campanhas/conjuntos/anuncios) — a tela Debriefing
+    # agrega o funil reconciliado por atributo no cliente. Fonte dos patterns:
+    # 10-fundacao/taxonomia.yml (donos: media-buyer-*).
+    TAXO = taxo_parsers()
+    dim = {"camp": [parse_campanha(TAXO["campanha"], n) for n in cI.l],
+           "conj": [parse_nome(TAXO["conjunto"], n) for n in jI.l],
+           "anun": [parse_nome(TAXO["anuncio"], n) for n in aI.l]}
+
     return {
         "freshness": {"gerado":HOJE.strftime("%d/%m/%Y %H:%M"),
             "crm_ate":crm_max.strftime("%d/%m/%Y") if crm_max else "—",
@@ -476,20 +631,24 @@ def build_payload(campanhas, crm):
                     "sched_at","show_at","win","win_at","lost","reason","value","neg","mens","impl",
                     "q_obras","q_ferramenta","q_cargo","q_segmento","q_dor","sdr","stage","lost_at","sflag"]},
         "vendas": {"rows": vend_rows, "cols": ["data","canal","camp","conj","anun","fat2","mens"]},
+        "dim": dim,
+        "brk": load_brk(TAXO, campanhas),
+        "lib": load_lib(aI),
         "fin": load_config_fin(),
         "tcv_default": 6,
         "termos": load_termos(),
     }
 
 def main():
-    if not CAMP.exists() or not CRM.exists():
-        print("ERRO: CSV(s) ausente(s). Rode o feed primeiro.", file=sys.stderr); sys.exit(1)
-    P = build_payload(load_campanhas(), load_crm())
+    if not FATO.exists():
+        print("ERRO: derivado/fato-ads-enriquecido.csv ausente. Rode _transform.py primeiro.", file=sys.stderr); sys.exit(1)
+    crm = load_crm(verbose=False)   # QA do CRM já registrado pelo transform nesta rodada
+    P = build_payload(load_fato(), crm)
     from _render_monitor import render
     OUT.write_text(render(P), encoding="utf-8")
     OUT_JSON.write_text(json.dumps(P, ensure_ascii=False), encoding="utf-8")   # snapshot p/ skills de análise
     o=P["okr"]
-    print(f"monitor v4 · vigência {VLABEL} · demos {o['demos_real']['real']:.0f}/{o['demos_real']['meta']}"
+    print(f"monitor v6 · vigência {VLABEL} · demos {o['demos_real']['real']:.0f}/{o['demos_real']['meta']}"
           f" · clientes {o['clientes']['real']:.0f}/{o['clientes']['meta']}"
           f" · {len(P['camp']['rows'])} linhas camp · {len(P['leads']['rows'])} leads"
           f" · {OUT.name} + {OUT_JSON.name}")

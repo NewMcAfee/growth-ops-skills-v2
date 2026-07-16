@@ -28,8 +28,8 @@ HOJE = datetime.now()
 META_DEFAULT = {
     "quarter_vigencia": "2026-Q2", "inicio": "2026-04-01", "fim": "2026-06-30",
     "canais_meta": ["paid_google", "paid_meta"],
-    "aquisicao": {"faturamento": 300000, "clientes": 400, "ticket_medio": 800,
-                  "investimento": 100000, "roas_min": 3.0, "cac_max": 250},
+    "aquisicao": {"faturamento": 342000, "clientes": 480, "ticket_medio": 950,
+                  "investimento": 114000, "roas_min": 3.0, "cac_max": 239.82},
 }
 def load_contrato():
     try:
@@ -207,7 +207,7 @@ tr.meta td:first-child::after{content:" ●";color:var(--grn)}
 </style></head><body><div class="wrap">
 <h1>Monitor de Aquisição × Recompra</h1>
 <p class="sub" id="periodo"></p>
-<div class="obj"><strong>Objetivo Q2:</strong> Validar a Máquina de Aquisição — R$ 300.000 em faturamento de novos clientes com ROAS &gt; 3. <em>Só canais pagos contam pro OKR.</em></div>
+<div class="obj"><strong>Objetivo Q2:</strong> Validar a Máquina de Aquisição — R$ 342.000 em faturamento de novos clientes com ROAS &gt; 3. <em>Só canais pagos contam pro OKR.</em></div>
 <div class="filtro">
   <span class="quick"><button class="btn" onclick="setMeta()">Só meta (pagos)</button><button class="btn" onclick="setTodos()">Geral (todos)</button></span>
   <span id="checks"></span>

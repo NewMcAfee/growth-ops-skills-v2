@@ -1,0 +1,152 @@
+# =============================================================================
+# contrato-dados-fonte.yml — TEMPLATE (motor-dados-vault)
+# Manifesto da camada de dados de um vault Growth IA Ops (dados-fonte 2.0).
+#
+# Copie pro vault-alvo em 90-referencias/dados-fonte/contrato-dados-fonte.yml
+# e preencha por ENTREVISTA + inspeção das fontes (nunca invente grão/chave).
+#
+# Regras do contrato:
+# - Toda skill que precisa de dado quantitativo lê ESTE contrato primeiro,
+#   consome derivado/ e só cai pro raw/ se o derivado não cobre (aí vira
+#   feature request pro motor, não join improvisado na skill).
+# - colunas_core = padrão cross-projeto (o transform trata em qualquer vault).
+#   colunas_extensao = específicas do projeto (dono + semântica declarados).
+#   O motor NUNCA assume extensão não declarada.
+# - Aba da família padrão que não existe no projeto: declarar `presente: false`
+#   (o template é o mesmo em todos os vaults; a ausência é explícita, não omissão).
+# =============================================================================
+versao: 0.1.0
+projeto: <slug-do-projeto>
+atualizado: <AAAA-MM-DD>
+
+fontes:
+  planilha:
+    id: <sheet-id>
+    mecanismo: _atualizar-dados.ps1 (curl /export?format=csv&gid= · 2x/dia) -> raw/
+    cadeia: feed(raw/) -> _transform.py(derivado/) -> _gerar-monitor.py(monitor.*) -> publica -> notify
+  flow:                     # opcional — se o projeto tem warehouse flow/Nekt
+    projeto_document_id: <id>
+    meta_account: <act_...>
+    google_account: "<id>"
+    mecanismo: _extrair-flow.py (MCP JSON-RPC direto, stdlib, zero-Claude)
+    cadencia: segundas 07:00 (feed diário consome na sequência)
+
+tabelas:
+  # ---- família CORE-IDÊNTICA cross-projeto (schema igual em todo vault) ----
+  index_anuncios:
+    arquivo: raw/index-anuncios-completo.csv
+    aba: bd_campaing_index
+    gid: "<gid>"
+    tipo: dimensao
+    padrao: core-identico-cross-projeto
+    grao: 1 linha por ad_id
+    chave: [ad_id]
+    pii: false
+    colunas_core: [icm_product_map, funnel, canal, ad_id, nome_campanha, nome_conjunto, nome_anuncio]
+    qa:
+      - check: ad_id duplicado
+        severidade: alta          # join explode — duplica linhas do fato
+        politica: keep-first + WARN alto (dup IDÊNTICO = INFO benigno)
+    nota: dimensao SCD tipo 1 — rename na origem reescreve o histórico (aceito, registrado)
+
+  campanhas:
+    arquivo: raw/campanhas-completo.csv
+    aba: bd_ads
+    gid: "<gid>"
+    tipo: fato
+    padrao: core-identico-cross-projeto
+    grao: 1 linha por data x ad_id
+    chave: [data, ad_id]
+    pii: false
+    colunas_core: [data, ad_id, investimento, impressões, alcance, ad_clicks]
+    joins_reconstruidos_no_motor:
+      nomes_canal: "join com index_anuncios por ad_id (fallback: valor legado se órfão)"
+      funil: >-
+        derive_funil — declarar aqui a ÂNCORA de cada evento (safra = dia de
+        criação do lead · calendário = data do evento). Se substitui fórmula
+        da origem: validar por golden test antes de confiar (ver doutrina).
+    qa:
+      - check: data+ad_id duplicado
+        severidade: alta          # soma métricas 2x
+        politica: keep-first + WARN com lista
+    sentinela:                    # linha-canário: detecta quebra silenciosa do export
+      descricao: linha sintética fixa na aba, fora de qualquer período real
+      match: { ad_id: <valor>, data: "<dd/mm/aaaa>" }
+      politica: excluir do cálculo; ALERTAR se sumir
+
+  # ---- família BASE-PADRÃO-COM-EXTENSÕES (núcleo comum + campos por projeto) ----
+  crm:
+    arquivo: raw/crm-completo.csv
+    aba: leads_pipeline
+    gid: "<gid>"
+    tipo: fato
+    padrao: base-padrao-com-extensoes
+    grao: 1 linha por deal
+    chave: [deal_growthpack_id]
+    pii: true                     # email/phone/cnpj em claro -> git-ignored
+    join: { com: campanhas, por: ad_id }
+    colunas_extensao:             # ex. Sigo: temperatura (closer), score (SDR)
+      <campo>: { dono: <quem preenche>, semantica: <o que significa> }
+    qa:
+      - check: deal_growthpack_id duplicado
+        severidade: alta          # infla funil e receita
+        politica: keep-first + WARN com lista
+
+  leads:
+    arquivo: raw/leads-completo.csv
+    aba: leads
+    gid: "<gid>"
+    tipo: fato
+    padrao: base-padrao-com-extensoes
+    grao: 1 linha por lead
+    chave: [lead_id]
+    pii: true
+    join: { com: campanhas, por: ad_id }
+    qa:
+      - check: lead_id duplicado
+        severidade: alta          # infla topo
+        politica: keep-first + WARN com lista
+
+  bd_buy:
+    presente: false               # declarar mesmo quando não existe no projeto
+
+extracoes_flow: {}                # 1 entry por raw/flow-*.csv com { tipo, grao, metricas }
+                                  # saldo de contas = modo APPEND (fonte só tem snapshot)
+
+quebras_de_serie: []              # datas em que definição/tracking mudou —
+                                  # análises longitudinais leem AQUI antes de comparar períodos
+  # - data: <AAAA-MM-DD>
+  #   o_que: <o que mudou>
+  #   impacto: <o que fica incomparável>
+
+receita:                          # semântica de receita do projeto (campos padrão do leads_pipeline;
+  recorrente: value_mensalidade   #   declarar o que EXISTE — projeto pode ter só recorrente, só pontual,
+  pontual: "value_implementação"  #   ou composta como TCV = tcv_meses × mens + impl)
+  total: total_value              # soma bruta (fórmulas legadas usam; análises preferem os limpos)
+  composta: "tcv_meses × recorrente + pontual (tcv_meses no config-financeiro)"
+
+derivados:                        # só o _transform.py escreve; cresce por feature request
+  fato_ads_enriquecido:
+    arquivo: derivado/fato-ads-enriquecido.csv
+    grao: 1 linha por data x ad_id (datas ISO, números com ponto)
+    pii: false                    # agregado por anúncio -> commitável
+  qa_report:
+    arquivo: derivado/qa-report.json
+    conteudo: achados dos gates da última rodada (nivel/check/msg + ids amostrados)
+    pii: false
+  dim_criativo:
+    arquivo: derivado/dim-criativo.csv
+    grao: 1 linha por ad_id do index
+    conteudo: atributos parseados da nomenclatura (10-fundacao/taxonomia.yml) + copy do flow
+    pii: false
+  baseline_metricas:              # fato de baselines (ver doutrina-transform §7.5)
+    arquivo: derivado/baseline-metricas.json
+    grao: metrica x janela (todo/12m/6m/3m) x estatistica (n/mediana/media/melhor/pior) + series_mensais
+    regras: mediana=baseline · mes corrente excluido · melhor/pior n>=3 · safra matura (2 meses) ·
+      serie inicia no 1o mes > 0 (zero pre-tracking = artefato; registrar em quebras_de_serie)
+    pii: false
+    consumidores: [arquimedes, sobral, breakeven-builder, falconi]
+  planejados: []
+
+achados_qa: []                    # log do que os gates pegaram (corrigir na ORIGEM;
+                                  # o motor dedupa keep-first e segue)

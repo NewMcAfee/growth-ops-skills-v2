@@ -56,14 +56,14 @@ campos_valor:
 estrela: demo_realizada
 metas:                          # ↓ LIDO EM RUNTIME — trocar a cada quarter sem tocar no .py
   quarter_vigencia: "2026-Q2"   # quarter destas metas (AAAA-Qn); WARN se ≠ quarter corrente
-  demos_real_mes: 100
-  demos_agend_mes: 120
-  sql_semana: 25
-  clientes_q: 40
-  valor_total_q: 100000
-  budget_q: 50000
-  taxas: {sal_sql: 0.50, show: 0.70, close: 0.20}
-  baseline_q_anterior: {show: 0.60, close: 0.15, sal_sql: 0.40}
+  demos_real_mes: 92
+  demos_agend_mes: 114
+  sql_semana: 31
+  clientes_q: 55
+  valor_total_q: 122500
+  budget_q: 70000
+  taxas: {sal_sql: 0.55, show: 0.75, close: 0.20}
+  baseline_q_anterior: {show: 0.668, close: 0.16, sal_sql: 0.452}
 
 # --- TCV (fórmula de receita — varia por modelo de negócio) ---
 tcv:

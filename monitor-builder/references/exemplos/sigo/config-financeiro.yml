@@ -1,0 +1,55 @@
+# =============================================================================
+# config-financeiro.yml — Sigo ERP (dados-fonte 2.0 · F3)
+# Config financeiro DECLARADO. Regra de ouro: aqui só entra o que NÃO existe
+# em nenhum dado (fee, margem, regras, budget declarado). O que dá pra
+# calcular do dado (ticket médio, ciclo, implementação média) é DERIVADO —
+# o motor calcula, não entra aqui. `premissa:` = provisório, dado real vence.
+#
+# Consumido por _gerar-monitor.py (load_config_fin expande vigências pra
+# mensal). Entrevista de setup: 2026-07-09 (operador).
+# =============================================================================
+versao: 1.1.0
+projeto: sigo-erp
+atualizado: 2026-07-09
+
+contrato_inicio: 2024-07-14   # início do contrato do projeto (operador, 2026-07-09) — LT do projeto DERIVA daqui
+
+# --- vigências (edite/adicione UM bloco no reajuste; vale até a próxima) -----
+vigencias:
+  - de: 2024-07              # corrigido 2026-07-09: fee é o mesmo desde o início do contrato (era 2025-01 por falta de info)
+    fee: 6750            # R$/mês pago à V4 (sem reajuste até jul/2026 — confirmado 2026-07-09)
+    margem: 0.63         # margem de contribuição do cliente (régua única do DRE)
+    tcv_meses: 6         # TCV = tcv_meses × mensalidade + implementação
+    custo_tech: 0        # CRM, construtor de páginas etc. (0 no Sigo; relevante em outros projetos)
+    outras_receitas: 0
+    outros_custos: 0
+
+impostos: null           # decisão 2026-07-09: DRE sem impostos — margem 0.63 é a régua
+
+regras:
+  tcv: "tcv_meses × mensalidade + implementação (TCV só no DRE)"
+  faturamento_default: "value_mensalidade + value_implementação (campos limpos; total_value cru só no lado-campanha)"
+
+# --- budget de mídia (espelho-máquina da decisão mensal de realocação) --------
+budget_midia:
+  - mes: 2026-07
+    total: 25000
+    canais: { meta: 16000, google: 9000 }
+    fonte: 30-decisoes/2026-06-26-realocacao-portfolio-midia-julho.md
+
+# --- contas de anúncio (semântica do saldo — entrevista 2026-07-09) -----------
+contas_anuncio:
+  meta:
+    id: act_826565024135443
+    pagamento: pos-pago    # balance = consumido não faturado; runway vem do budget declarado
+  google:
+    id: "8360288373"
+    pagamento: pre-pago    # saldo real (account_budget) — alerta de runway se aplica direto
+
+# --- alertas (monitor tela Atenção + report WhatsApp F6) ----------------------
+alertas:
+  desvio_pacing_pct: 10    # ±10%: dentro = verde; além = vermelho (report diário + monitor)
+  runway_dias_min: 7       # aviso se saldo/budget acaba em < 7 dias
+  whatsapp:                # F6 (2026-07-09): report diário 08:00 via _notify.py
+    destino: 120363428676171244@g.us    # grupo "Gestão de Performance"
+    instancia: robson-pessoal           # Evolution API (creds: settings.json env.EVOLUTION_*)

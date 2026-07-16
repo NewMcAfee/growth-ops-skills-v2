@@ -1,5 +1,4 @@
 # contrato-cockpit.yml — Martins Locações
-# NB: valores numéricos de metas/FEE são FICTÍCIOS (sanitizados pra publicação).
 # Único lugar onde mora o que varia por cliente. O gerador lê o bloco `metas`
 # EM RUNTIME (troca de quarter sem tocar código). Modelo: locação de equipamentos
 # + venda de material (B2C-viés), eixo Aquisição × Recompra (NÃO é o funil de
@@ -38,16 +37,16 @@ join:
 
 # --- Período de vigência + Metas OKR (LIDO EM RUNTIME) ---
 # Q2 2026 = "Validar a Máquina de Aquisição" (até 1/jul). Metas SÓ de aquisição.
-# NB: os 3 KRs de volume não fecham entre si (300k÷400=750 ≠ 800) — por decisão
+# NB: os 3 KRs de volume não fecham entre si (342k÷480=712,50 ≠ 950) — por decisão
 # do operador, cada KR é medido independente vs seu próprio alvo.
 # FEE de gestão por mês (R$) — usada no DRE (Investimento Total = mídia + FEE).
-# default cobre meses não listados. (R$10k até dez/25, R$5k a partir de jan/26.)
+# default cobre meses não listados. (Do print do operador: R$11k até dez/25, R$6k a partir de jan/26.)
 fee:
-  default: 5000
+  default: 6000
   por_mes:
-    "2025-10": 10000
-    "2025-11": 10000
-    "2025-12": 10000
+    "2025-10": 11000
+    "2025-11": 11000
+    "2025-12": 11000
 
 # Canais que contam pro OKR. A "Máquina de Aquisição" é mídia paga — só estes
 # entram no realizado vs meta. Os demais (organic, canal vazio, manual) aparecem
@@ -61,12 +60,12 @@ periodo:
 
 metas:
   aquisicao:
-    faturamento: 300000        # KR — R$ faturamento de novos clientes
-    clientes: 400              # KR3 — nº de novos clientes (ganhos de aquisição)
-    ticket_medio: 800          # KR6 — R$ (medido independente; ver nota acima)
-    investimento: 100000       # KR5 — R$ budget do período
+    faturamento: 342000        # KR — R$ faturamento de novos clientes
+    clientes: 480              # KR3 — nº de novos clientes (ganhos de aquisição)
+    ticket_medio: 950          # KR6 — R$ (medido independente; ver nota acima)
+    investimento: 114000       # KR5 — R$ budget do período
     roas_min: 3.0              # KR1 — ROAS > 3 (faturamento ÷ investimento)
-    cac_max: 250               # KR2 — CAC blended < R$ 250 (investimento ÷ clientes)
+    cac_max: 239.82            # KR2 — CAC blended < R$ 239,82 (investimento ÷ clientes)
   recompra: null               # sem meta neste Q2 — eixo monitora só realizado
 
 # --- Modelo de receita ---

@@ -5,12 +5,16 @@
 
 Existe um padrão validado (Sigo ERP, jun/2026) de **cockpit operacional vivo**: um `monitor.html` auto-contido que o gestor abre pra entender *como está, o que priorizar, o que cortar/escalar*, e que **regenera sozinho** toda vez que o feed diário sobrescreve os CSVs. Esta skill **replica esse padrão pra qualquer projeto**, parametrizando o que muda por cliente (definições de funil, metas, fórmula de receita, canais) num **contrato** — sem reescrever a engenharia do zero.
 
-A skill NÃO inventa dado nem analisa: ela **constrói a ferramenta** (gerador `_gerar-monitor.py` + renderer `_render_monitor.py`) e a pluga no feed. O CRM é a verdade (lead→venda); campanhas é a mesma verdade fatiada por anúncio (join `ad_id`).
+A skill NÃO inventa dado nem analisa: ela **constrói a ferramenta** (gerador `_gerar-monitor.py` + renderer `_render_monitor.py`) e a entrega como **estágio render da cadeia** do feed.
+
+**Pré-requisitos (dados-fonte 2.0 — pare e nomeie a skill upstream se faltarem):**
+1. **Feed rodando** (`feed-planilha-vault`) — `raw/` alimentado + cadeia orquestrada.
+2. **Camada transform instalada** (`motor-dados-vault`) — `contrato-dados-fonte.yml` + `derivado/fato-ads-enriquecido.csv` + `derivado/dim-criativo.csv`. **O gerador NÃO faz join**: fato (métricas+funil por dia×anúncio) e dim (atributos criativos) vêm prontos do motor. Dado que falta no derivado = feature request pro motor, nunca parsing novo no gerador.
 
 **Arquitetura inegociável** (detalhe em `references/monitor-arquitetura.md`):
-- Gerador Python emite **dados granulares interned** (campanha diária + leads **só com campos analíticos**) e **agregação roda em JS** → filtros recalculam ao vivo, load instantâneo (sem servidor).
+- Gerador Python é **render-prep**: consome `derivado/` (+ CRM analítico sem PII e termos do raw como passthrough), **importa os helpers de parsing do `_transform.py`** (1 fonte de verdade) e emite **payload granular interned** — **agregação roda em JS** → filtros recalculam ao vivo, load instantâneo (sem servidor).
 - **Single-file**: zero build, Chart.js via CDN, identidade lida do `00-sistema/design-system.css`.
-- **PII nunca no HTML**: nada de nome/email/telefone/CNPJ embutido. `monitor.html` git-ignored; os `.py` commitáveis.
+- **PII nunca no HTML**: nada de nome/email/telefone/CNPJ embutido. `monitor.html`/`monitor.json` git-ignored; os `.py` commitáveis.
 
 ## Workflow (7 passos)
 
@@ -24,18 +28,20 @@ Depois, **leia `references/monitor-contrato-projeto.md`** e produza/preencha um 
 4. Se algo essencial não está claro, **pergunte** — não assuma. Contrato errado quebra todo o downstream.
 
 ### Passo 1 — Forjar gerador + renderer
-**Ponto de partida: `references/exemplos/martins/`** (estado-da-arte de visual/UX/filtros/metas) compondo com o **catálogo de componentes** (`references/monitor-biblioteca.md`) — cada componente lá tem identificadores estáveis e contrato de dados. O **cruzamento backend** vem do blueprint escolhido (pra `recorrencia`, o `exemplos/sigo/` é a referência do backend; o visual continua vindo do Martins/catálogo). Copie os 2 `.py` pra `dados-fonte/` do alvo e **adapte conforme o contrato**:
-- Reescreva o bloco de constantes/`MIN_ANO`/paths. As **metas NÃO são hardcoded**: `load_meta()` lê o bloco `metas` do `contrato-cockpit.yml` em runtime (`pyyaml` + fallback pro `META_DEFAULT`) — materialize o `contrato-cockpit.yml` no projeto-alvo (Passo 0).
-- Reescreva os **nomes de campo** (parsing de campanhas e CRM) conforme o `funil:` do contrato — `references/monitor-data-realities.md` lista exatamente quais trechos mapeiam quais chaves.
+**Ponto de partida: `references/exemplos/sigo/`** (padrão VIGENTE dados-fonte 2.0, 10 telas v6.4 — backend E frontend), compondo com o **catálogo de componentes** (`references/monitor-biblioteca.md`) e o blueprint do modelo de negócio (Martins segue referência de variações de aquisição×recompra; Colina, do híbrido por BU). Copie os 2 `.py` pra `dados-fonte/` do alvo e **adapte conforme os contratos**:
+- **O gerador consome `derivado/`** (`load_fato()` no fato enriquecido + dim-criativo) e **importa helpers do `_transform.py`** do vault — NÃO reescreva parsers nem joins. Se o vault não tem transform → volte ao pré-requisito (`motor-dados-vault`).
+- Reescreva o bloco de constantes/paths. As **metas NÃO são hardcoded**: `load_meta()` lê o bloco `metas` do `contrato-cockpit.yml` em runtime (`pyyaml` + fallback pro `META_DEFAULT`) — meta no gerador foi causa-raiz de monitor 2 dias parado (virada de quarter). Materialize o `contrato-cockpit.yml` no alvo (Passo 0).
+- Mapeie a semântica de funil conforme o `funil:` do contrato-cockpit — `references/monitor-data-realities.md` lista quais trechos mapeiam quais chaves.
 - Ajuste a fórmula de `tcvOf` à fórmula do contrato.
+- Blocos do payload v3: interns clássicos + `P.dim` (dim-criativo parseada) + `P.brk` (breakdowns do flow + funil ad×mês pro rateio) + `P.lib` (biblioteca de criativos) — se o vault não tem extração flow, esses blocos degradam vazios e as telas Criativos/Debriefing/Dimensões se desligam sozinhas.
 - Mantenha intacta a engenharia (interned payload, **emissão do `monitor.json`** no `main()`, agregação JS, telas, filtros) — só os parâmetros mudam.
 
 ### Passo 2 — Config financeiro (se DRE)
-Crie `config-financeiro.csv` (`mes,fee,margem,tcv_meses,outras_receitas,outros_custos`), 1 linha/mês desde o início do projeto. Sem FEE/DRE no escopo? Pule e desligue a aba Mensal.
+Use o `config-financeiro.yml` **por vigências** do vault (criado pelo `motor-dados-vault` por entrevista; o loader do gerador expande pra série mensal). Vault não migrado: fallback CSV legado (`mes,fee,margem,tcv_meses,...`) ainda funciona no loader. Sem FEE/DRE no escopo? Pule e desligue a aba Mensal.
 
-### Passo 3 — Plugar no feed + governança
-- Edite (ou crie) `_atualizar-dados.ps1` pra chamar `python _gerar-monitor.py` **no fim** (após sobrescrever CSVs), em `try/catch` que não derruba o feed.
-- `.gitignore`: adicione `monitor.html` **e `monitor.json`** (ambos embutem comportamento do CRM) + o CSV de CRM + `__pycache__/`. Os `.py`, o `contrato-cockpit.yml` e o config são commitáveis.
+### Passo 3 — Plugar na cadeia + governança
+- O render entra como **estágio da cadeia** no `_atualizar-dados.ps1` (após o transform), via `cmd /c "python _gerar-monitor.py 2>&1"` com decisão **pelo exit code** — nunca `& $py ... 2>&1` direto no PS 5.1 (stderr benigno vira exceção e mata a cadeia). Estágio em try/catch que degrada com WARN. ⚠️ O `.ps1` é **UTF-8 com BOM** (R4 do feed): após editar, re-assegure o BOM (`[IO.File]::WriteAllText($p,(Get-Content $p -Raw -Encoding UTF8),(New-Object Text.UTF8Encoding($true)))`) e rode a cadeia 1×.
+- `.gitignore`: **verifique** que `monitor.html` **e `monitor.json`** (ambos embutem comportamento do CRM) estão cobertos, junto de `__pycache__/` + `_dist/` — o gitignore de PII é criado pelo `feed-planilha-vault` na 1ª carga; esta skill só adiciona o que faltar dos SEUS artefatos, com `git check-ignore` confirmando. Os `.py` e os contratos são commitáveis.
 
 ### Passo 4 — Gerar + validar (loop de feedback obrigatório)
 1. `python _gerar-monitor.py` → confere stdout (sem traceback; sem WARN de `pyyaml`/contrato ausente) e que **`monitor.json` foi escrito e é JSON válido** (`python -c "import json;json.load(open('monitor.json',encoding='utf-8'))"`).
@@ -60,9 +66,9 @@ Formato: lista curta "item → destino proposto" no fechamento da sessão (mesmo
 ## Padrão de output
 
 Arquivos entregues em `<vault>/90-referencias/dados-fonte/` (ou onde mora o feed):
-- `_gerar-monitor.py` + `_render_monitor.py` (commitáveis) · `config-financeiro.csv` (commitável) · `contrato-cockpit.yml` (commitável; bloco `metas` lido em runtime) · `monitor.html` **+ `monitor.json`** (git-ignored, regeneram no feed — o `.json` é o snapshot p/ skills de análise; schema em `references/monitor-contrato-snapshot.md`).
+- `_gerar-monitor.py` + `_render_monitor.py` (commitáveis) · `contrato-cockpit.yml` (commitável; bloco `metas` lido em runtime) · `monitor.html` **+ `monitor.json`** (git-ignored, regeneram na cadeia — o `.json` é o snapshot p/ skills de análise; schema em `references/monitor-contrato-snapshot.md`). O `config-financeiro.yml` é do vault (motor-dados-vault), consumido aqui.
 
-Telas do monitor (todas no exemplo): **Visão Geral** (OKR quarter fixo + pace/projeção + pipeline em aberto por etapa + KPIs + qualidade) · **KPIs** (grid com Δ%) · **Decisão** (Cortar/Escalar/Investigar) · **Funil & Qualidade** (funil + velocidade entre-etapas + leads/semana por status + perdas) · **Safra** (triângulo de maturação M0–Mn, métrica trocável) · **Mídia** (canal + charts + drill campanha→conjunto→anúncio + termos) · **Mensal/DRE** (competência + breakeven + payback) · **Segmentos**. Filtros: Período · Canal (multi) · Comparar (Δ%).
+Telas do padrão vigente (10, decision-first — todas no exemplo sigo): **Visão Geral** (OKR vigência + pace/forecast adaptativo) · **Atenção** (pontos cegos + reconciliação + QA + veredito) · **Funil & Pipeline** · **Qualificadores** (form + SDR) · **Safra** (triângulo M0–Mn, métrica trocável) · **Mídia** (drill com selects cascata + filtro texto + clique→popup do criativo + termos) · **Criativos** (biblioteca com preview/popup) · **Debriefing** (subtabs Mensagem/Público + cruzamento único por RESULTADO) · **Dimensões** (geo/demo/device/hora, funil estimado `*`) · **Mensal/DRE** (competência + payback + CPL/CP-SAL/custo-demo, âncora calendário explícita). Filtros: Período · Canal (multi) · Comparar (Δ%). Telas condicionais se desligam sem o dado (sem flow → sem Criativos/Debriefing/Dimensões; sem FEE → sem DRE).
 
 ## Regras Aplicadas (estado da arte incorporado)
 

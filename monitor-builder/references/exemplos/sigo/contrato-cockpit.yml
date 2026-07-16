@@ -1,5 +1,4 @@
 # contrato-cockpit.yml — Sigo ERP (exemplo de referência)
-# NB: valores numéricos de metas/financeiro são FICTÍCIOS (sanitizados pra publicação).
 # Único lugar onde mora o que varia por cliente. O gerador lê o bloco `metas`
 # EM RUNTIME (troca de quarter sem tocar código); os demais blocos guiam a
 # adaptação do gerador/renderer no Passo 1 da skill.
@@ -66,14 +65,14 @@ metas:
   quarter_vigencia: "2026-Q3"   # quarter ao qual estas metas se aplicam (formato AAAA-Qn)
   # Régua de Q2 mantida pra Q3 — CONFIRMADO pelo operador em 2026-07-02.
   # Revisar no planning de Q3 (~15/jul): sair valores novos, editar só abaixo.
-  demos_real_mes: 100
-  demos_agend_mes: 120
-  sql_semana: 25
-  clientes_q: 40
-  valor_total_q: 100000
-  budget_q: 50000
-  taxas: {sal_sql: 0.50, show: 0.70, close: 0.20}
-  baseline_q_anterior: {show: 0.60, close: 0.15, sal_sql: 0.40}
+  demos_real_mes: 92
+  demos_agend_mes: 114
+  sql_semana: 31
+  clientes_q: 55
+  valor_total_q: 122500
+  budget_q: 70000
+  taxas: {sal_sql: 0.55, show: 0.75, close: 0.20}
+  baseline_q_anterior: {show: 0.668, close: 0.16, sal_sql: 0.452}
 
 # --- Qualificadores (v5 — tela "Quem converte melhor?") ---
 # `campos`: dimensão lógica → coluna do CRM. `normalizacao`: valor de origem

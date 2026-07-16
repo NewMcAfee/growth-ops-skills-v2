@@ -137,6 +137,35 @@ tbody tr:nth-child(odd){background:var(--row-odd)}tbody tr:nth-child(even){backg
 .subtabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
 .stbtn{background:var(--elev);border:1px solid var(--border);color:var(--muted);padding:7px 16px;border-radius:7px;cursor:pointer;font-family:var(--fbody);font-size:13px;font-weight:600}
 .stbtn.on{background:var(--v4-red);color:#fff;border-color:var(--v4-red)}
+/* F5.1: sort clicável + filtro do drill + selects do cruzamento */
+.tbl-wrap th{cursor:pointer;user-select:none}
+.tbl-wrap th[data-dir="desc"]::after{content:" ▼";font-size:9px;color:var(--v4-yellow)}
+.tbl-wrap th[data-dir="asc"]::after{content:" ▲";font-size:9px;color:var(--v4-yellow)}
+.tfilter{width:100%;max-width:460px;background:var(--elev);border:1px solid var(--border);color:var(--white);border-radius:9px;padding:8px 13px;font-family:var(--fbody);font-size:13px;margin:2px 0 10px}
+.tfilter:focus{outline:none;border-color:var(--v4-red-light)}
+.hidectx{display:none}
+.dbxsel{background:var(--elev);border:1px solid var(--border);color:var(--white);border-radius:8px;padding:7px 11px;font-family:var(--fbody);font-size:13px;cursor:pointer;max-width:100%}
+/* F5.2: biblioteca de criativos + popup */
+.libgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:13px;margin-top:10px}
+.libcard{background:var(--elev);border:1px solid var(--border);border-radius:12px;overflow:hidden;cursor:pointer;transition:border-color .12s,transform .12s}
+.libcard:hover{border-color:var(--v4-red-light);transform:translateY(-2px)}
+.libcard img{width:100%;height:170px;object-fit:cover;display:block;background:#0c0b0b}
+.libph{width:100%;height:170px;display:flex;align-items:center;justify-content:center;color:var(--subtle);font-size:12px;background:#0c0b0b}
+.libinfo{padding:9px 12px 11px}
+.libname{font-family:var(--fmono);font-size:11px;color:var(--muted);margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.libm{font-size:12px}
+.libm b{color:var(--v4-yellow)}
+#crtModal{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:100;display:none;align-items:center;justify-content:center;padding:24px}
+#crtModal.on{display:flex}
+.crtbox{position:relative;background:var(--elev);border:1px solid var(--border);border-radius:14px;max-width:560px;width:100%;max-height:88vh;overflow:auto;padding:18px}
+.crtbox img{width:100%;border-radius:9px;margin-bottom:12px;background:#0c0b0b}
+.crtx{position:absolute;top:10px;right:12px;background:var(--bg);border:1px solid var(--border);color:var(--white);border-radius:7px;width:30px;height:30px;cursor:pointer;z-index:2}
+.crtname{font-family:var(--fmono);font-size:12px;color:var(--v4-yellow);margin-bottom:8px;word-break:break-all}
+.crtline{font-size:13px;margin-bottom:4px;color:var(--muted)}
+.crtline b{color:var(--white)}
+.crtcopy{white-space:pre-wrap;background:var(--bg);border-radius:8px;padding:10px;font-size:12.5px;margin-top:6px}
+.crtlink{color:var(--white);cursor:pointer;text-decoration:underline dotted rgba(255,255,255,.35)}
+.crtlink:hover{color:var(--v4-yellow)}
 .stpane{display:none}.stpane.on{display:block}
 .st2btn{background:var(--elev);border:1px solid var(--border);color:var(--muted);padding:7px 16px;border-radius:7px;cursor:pointer;font-family:var(--fbody);font-size:13px;font-weight:600}
 .st2btn.on{background:var(--v4-red);color:#fff;border-color:var(--v4-red)}
@@ -187,8 +216,11 @@ const CC=P.camp.campanhas,CJ=P.camp.conjuntos,CA=P.camp.anuncios;
 const RES=(()=>{const m={};((P.resid&&P.resid.rows)||[]).forEach(r=>m[r[0]]=r);return m;})();
 const RECON=(P.resid&&P.resid.recon)||null;
 const CAMP=P.camp.rows.map((r,i)=>{const x=RES[i]||[0,0,0,0,0];return{data:r[0],canal:r[1],camp:CC[r[2]],conj:CJ[r[3]],anun:CA[r[4]],
+  ci:r[2],ji:r[3],ai:r[4],   // índices dos interns — lookup dos atributos (P.dim) na tela Debriefing
   inv:r[5],sal:r[6]+x[1],demo_ag:r[7]+x[2],demo_re:r[8]+x[3],cli:r[9]+x[4],fat:r[10],impr:r[11],clicks:r[12],
   lead:r[13]||0,sqlc:r[14]||0,alc:r[15]||0};});
+// atributos parseados da nomenclatura (taxonomia gia-v2) — paralelos aos interns
+const DIM=P.dim||null;
 const IC=P.leads.icms,RZ=P.leads.reasons;
 const QL=P.leads.quals||{},SDRS=P.leads.sdrs||[],STAGES=P.leads.stages||[];
 const LEAD=P.leads.rows.map(r=>({canal:r[0],icm:IC[r[1]],create_at:r[2],sal:r[3],sal_at:r[4],
@@ -340,7 +372,7 @@ function forecastCard(R){const ne=natEnd();
   const SM=periodMeta(),MT=SM?metaPeriodo(FILT.ini,ne):null;
   const li=(lab,val,mv,fm)=>{const pc=mv?Math.round(pctMeta(val,mv)*100):null;const st=pc==null?'':pc>=100?'ok':pc>=85?'warn':'bad';
     return `<div class="qkpi"><div class="tag">${lab}</div><div style="text-align:right"><b style="font-size:16px">${fm(val)}</b>${pc!=null?` <span class="s-${st}" style="font-size:11px">${pc}% da meta</span>`:''}</div></div>`;};
-  return `<div class="card"><div class="lab" style="margin-bottom:6px"><span data-tip="Projeta o fim do recorte no ritmo atual (realizado ÷ dias decorridos × dias totais) vs meta pro-rata do range completo.">Forecast (${el}/${tt} dias)</span></div>
+  return `<div class="card"><div class="lab" style="margin-bottom:6px"><span data-tip="Projeta o FIM NATURAL do recorte filtrado (mês filtrado projeta o mês; trimestre projeta o trimestre; semana, a semana) no ritmo atual, vs meta pro-rata da mesma janela.">Forecast (${el}/${tt}d · até ${ne.slice(8,10)}/${ne.slice(5,7)})</span></div>
     ${li('Demos realizadas',R.dre*f,MT&&MT.demos_real,v=>fI(Math.round(v)))}
     ${li('Demos agendadas',R.dag*f,MT&&MT.demos_agend,v=>fI(Math.round(v)))}
     ${li('Clientes',R.cli*f,MT&&MT.clientes,v=>fI(Math.round(v)))}
@@ -452,10 +484,15 @@ function veredito(a,t){const inv=a.inv,cli=Math.round(a.cli),dre=Math.round(a.de
   if(pior)return['investigar','CP-SAL subiu p/ '+fM(cr)+' (era '+fM(co)+')'];
   if(cd!=null&&cd>TGT_CD*1.4)return['reduzir','custo/demo '+fM(cd)+' acima do alvo'];
   return['neutro','dentro da média'];}
+// F5.2: seleção por SELECT (campanha -> conjunto) aplicada só no drill
+let SELCAMP='',SELCONJ='';
+function setSelCamp(v){SELCAMP=v;SELCONJ='';renderAll();}
+function setSelConj(v){SELCONJ=v;renderAll();}
+function drillF(){return campF().filter(c=>(!SELCAMP||c.camp===SELCAMP)&&(!SELCONJ||c.conj===SELCONJ));}
 function drill(keyf){const tm=trendMap(keyf);const m={};
-  campF().forEach(c=>{const k=keyf(c);const a=m[k]||(m[k]={nome:k,canal:c.canal,inv:0,sal:0,demo_ag:0,demo_re:0,cli:0,fat2:0,lead:0,sqlc:0,impr:0,alc:0});
+  drillF().forEach(c=>{const k=keyf(c);const a=m[k]||(m[k]={nome:k,canal:c.canal,inv:0,sal:0,demo_ag:0,demo_re:0,cli:0,fat2:0,lead:0,sqlc:0,impr:0,alc:0,cx:new Set()});
    a.inv+=c.inv;a.sal+=c.sal;a.demo_ag+=c.demo_ag;a.demo_re+=c.demo_re;a.cli+=c.cli;
-   a.lead+=c.lead;a.sqlc+=c.sqlc;a.impr+=c.impr;a.alc+=c.alc;});
+   a.lead+=c.lead;a.sqlc+=c.sqlc;a.impr+=c.impr;a.alc+=c.alc;a.cx.add(c.camp);});
   const[ra,rb]=curRange();vendIn(ra,rb).forEach(v=>{const x=m[keyf(v)];if(x)x.fat2+=v.fat2;});
   return Object.values(m).map(a=>{const[v,mo]=veredito(a,tm[a.nome]);
    return{...a,cp_sal:a.sal?a.inv/a.sal:null,custo_demo:a.demo_re?a.inv/a.demo_re:null,cac:a.cli?a.inv/a.cli:null,
@@ -664,8 +701,11 @@ function rFunil(){const fu=funil(),fmax=Math.max(...fu.map(x=>x.v),1),q=qualidad
    <div class="tbl-wrap"><table style="min-width:auto"><thead><tr><th>Motivo</th><th>Qtd</th><th>%</th></tr></thead><tbody>${pr}</tbody></table></div>`;}
 function rMidia(){const cn=canais();const tinv=cn.reduce((s,c)=>s+c.inv,0)||1;
   const cr=cn.map(c=>`<tr><td>${esc(CHNAME(c.canal))}</td><td>${fM(c.inv)}<i class="ibar" style="width:${Math.max(2,c.inv/tinv*70).toFixed(0)}px"></i></td><td>${fP(c.inv/tinv,0)}</td><td>${fI(c.sal)}</td><td>${fM(c.cp_sal)}</td><td>${fI(c.demo_re)}</td><td>${fM(c.custo_demo)}</td><td>${fI(c.cli)}</td><td>${fM(c.cac)}</td><td>${fM(c.fat2)}</td><td>${fM(c.mens)}</td><td>${fR(c.roas)}</td></tr>`).join('');
-  const dtbl=(rows,nc,eid)=>expWrap(eid,rows,
-    x=>{const[cs,lb]=VERED[x.vered];return `<tr><td title="${esc(x.nome)}">${esc(tr(x.nome))}</td><td>${fM(x.inv)}</td><td>${fI(x.lead)}</td><td>${fM(x.cpl)}</td><td>${fI(x.sal)}</td><td>${fM(x.cp_sal)}</td><td>${fI(x.demo_re)}</td><td>${fM(x.custo_demo)}</td><td>${fI(x.cli)}</td><td>${fM(x.cac)}</td><td>${x.fat2?fM(x.fat2):'—'}</td><td>${x.roas?fR(x.roas):'—'}</td><td>${x.freq?fR(x.freq):'—'}</td><td><span class="bdg bg-${cs}">${lb}</span></td></tr>`;},
+  const dtbl=(rows,nc,eid,click)=>expWrap(eid,rows,
+    x=>{const[cs,lb]=VERED[x.vered];const cxs=x.cx?[...x.cx].filter(c=>c!==x.nome):[];
+      const ai=click?ANIDX[x.nome]:null;
+      const nomeCell=ai!=null?`<a class="crtlink" onclick="showCrt(${ai})">${esc(tr(x.nome))}</a>`:esc(tr(x.nome));
+      return `<tr><td title="${esc(x.nome)}${cxs.length?' · campanha(s): '+esc(cxs.join(' | ')):''}">${nomeCell}${cxs.length?`<span class="hidectx">${esc(cxs.join(' '))}</span>`:''}</td><td>${fM(x.inv)}</td><td>${fI(x.lead)}</td><td>${fM(x.cpl)}</td><td>${fI(x.sal)}</td><td>${fM(x.cp_sal)}</td><td>${fI(x.demo_re)}</td><td>${fM(x.custo_demo)}</td><td>${fI(x.cli)}</td><td>${fM(x.cac)}</td><td>${x.fat2?fM(x.fat2):'—'}</td><td>${x.roas?fR(x.roas):'—'}</td><td>${x.freq?fR(x.freq):'—'}</td><td><span class="bdg bg-${cs}">${lb}</span></td></tr>`;},
     `<th>${nc}</th><th>Invest.</th><th>Lead</th><th>CPL</th><th>SAL</th><th>CP-SAL</th><th>Demo real.</th><th>Custo/demo</th><th>Clientes</th><th>CAC</th><th title="1 mensalidade + implementação dos ganhos atribuídos via ad_id">Fat.*</th><th>ROAS</th><th title="Frequência aprox. = impressões ÷ alcance somado por dia — proxy de fadiga de criativo">Freq*</th><th>Ação</th>`);
   return `<h2 class="sec">Performance por canal <span class="qask">— onde o dinheiro trabalha?</span></h2>
    <div class="tbl-wrap"><table><thead><tr><th>Canal</th><th>Invest.</th><th>Share</th><th>SAL</th><th>CP-SAL</th><th>Demo real.</th><th>Custo/demo</th><th>Clientes</th><th>CAC</th><th title="1 mensalidade + implementação dos ganhos atribuídos via ad_id (data do ganho)">Fat.*</th><th title="Mensalidades (MRR) dos ganhos atribuídos">MRR*</th><th>ROAS</th></tr></thead><tbody>${cr}</tbody></table></div>
@@ -677,11 +717,17 @@ function rMidia(){const cn=canais();const tinv=cn.reduce((s,c)=>s+c.inv,0)||1;
      <div class="chartbox"><h4>Custo/demo agendada por semana por canal</h4><canvas id="cCpdaCanal"></canvas></div>
      <div class="chartbox"><h4>Custo/demo realizada por semana por canal</h4><canvas id="cCpdrCanal"></canvas></div></div>
    <h2 class="sec">Campanhas · Conjuntos · Anúncios</h2>
-   <div class="sec-desc">Drill com veredito acionável no período/canal filtrado. Ordenado por investimento.</div>
+   <div class="sec-desc">Drill com veredito acionável no período/canal filtrado. <b>Selecione a campanha</b> (e o conjunto) nos seletores — as tabelas mostram só os filhos. Cabeçalhos ordenam; o campo de texto busca nas linhas exibidas. Clicar no <b>nome do anúncio</b> abre o criativo (preview + copy).</div>
+   ${(()=>{const camps=[...new Set(campF().map(c=>c.camp))].sort();
+     const conjs=SELCAMP?[...new Set(campF().filter(c=>c.camp===SELCAMP).map(c=>c.conj))].sort():[];
+     return `<div style="display:flex;gap:10px;margin:2px 0 10px;flex-wrap:wrap">
+      <select class="dbxsel" style="max-width:420px" onchange="setSelCamp(this.value)"><option value="">Todas as campanhas (${camps.length})</option>${camps.map(c=>`<option value="${esc(c)}" ${SELCAMP===c?'selected':''}>${esc(tr(c,64))}</option>`).join('')}</select>
+      ${SELCAMP?`<select class="dbxsel" style="max-width:380px" onchange="setSelConj(this.value)"><option value="">Todos os conjuntos (${conjs.length})</option>${conjs.map(c=>`<option value="${esc(c)}" ${SELCONJ===c?'selected':''}>${esc(tr(c,58))}</option>`).join('')}</select>`:''}
+      <input class="tfilter" style="margin:0;flex:1;min-width:200px" placeholder="🔎 buscar texto…" oninput="tfilt(this)"></div>`;})()}
    <div class="subtabs"><button class="stbtn on" data-st="camp">Campanhas</button><button class="stbtn" data-st="conj">Conjuntos</button><button class="stbtn" data-st="anun">Anúncios</button></div>
    <div class="stpane on" id="sp-camp">${dtbl(drill(c=>c.camp),'Campanha','xp-camp')}</div>
    <div class="stpane" id="sp-conj">${dtbl(drill(c=>c.conj),'Conjunto','xp-conj')}</div>
-   <div class="stpane" id="sp-anun">${dtbl(drill(c=>c.anun),'Anúncio','xp-anun')}</div>
+   <div class="stpane" id="sp-anun">${dtbl(drill(c=>c.anun),'Anúncio','xp-anun',true)}</div>
    ${TERMS.length?`<h2 class="sec">Termos de busca (Google Search) <span class="tag" style="font-size:11px">(snapshot · independe dos filtros)</span></h2>
    <div class="sec-desc">Performance por termo de busca. Conv = MQL (atribuição Google). Desperdício (custo com 0 MQL → candidatos a negativa): <b class="s-bad">${fM(TERMS.filter(t=>t.conv<1).reduce((s,t)=>s+t.cost,0))}</b>. Análise profunda (clusters intenção×ICP, negativas estruturadas) = skill <code>darwin</code>.</div>
    <div class="subtabs"><button class="st3btn on" data-s3="kw">Termos</button><button class="st3btn" data-s3="adg">Grupos</button><button class="st3btn" data-s3="camp">Campanhas</button></div>
@@ -784,6 +830,8 @@ function rMensal(){const D=dreData(),ms=D.rows;
   b+=line('Investimento (mídia)',r=>fM(r.inv));b+=line('FEE',r=>fM(r.fee));b+=line('Investimento Total',r=>fM(r.it));
   if(D.hasImpr){b+=line('Impressões',r=>fI(r.impr));b+=line('Cliques',r=>fI(r.clk));b+=line('CPM',r=>r.impr?fM(r.inv/r.impr*1000):'—');b+=line('CTR',r=>(r.impr&&r.clk<=r.impr)?fP(r.clk/r.impr,2):'—');}
   b+=line('Leads',r=>fI(r.leads));b+=line('SAL (MQL)',r=>fI(r.sal));b+=line('RM (demo agend.)',r=>fI(r.rm));b+=line('RR (demo real.)',r=>fI(r.rr));
+  b+=line('CPL',r=>r.leads?fM(r.inv/r.leads):'—');b+=line('CP-SAL',r=>r.sal?fM(r.inv/r.sal):'—');
+  b+=line('Custo/demo agend.',r=>r.rm?fM(r.inv/r.rm):'—');b+=line('Custo/demo real.',r=>r.rr?fM(r.inv/r.rr):'—');
   const inVig=m=>m>=VIG.start.slice(0,7)&&m<=VIG.end.slice(0,7);
   b+=line(`Meta demos real. (${fI(M.demos_real_mes)}/mês)`,r=>inVig(r.m)?`<span class="s-${stMeta(r.rr,M.demos_real_mes)}">${Math.round(r.rr/M.demos_real_mes*100)}%</span>`:'<span class="muted-n">—</span>');
   b+=line('Deals',r=>fI(r.deals));
@@ -797,9 +845,238 @@ function rMensal(){const D=dreData(),ms=D.rows;
    <div class="grid g2"><div class="chartbox"><h4>Fechados por mês</h4><canvas id="cFechMes"></canvas></div>
      <div class="chartbox"><h4>Fechados por ano</h4><canvas id="cFechAno"></canvas></div></div>
    <h2 class="sec">DRE mensal — competência &amp; payback</h2>
-   <div class="sec-desc"><b>Projeto inteiro, todos os canais</b> (não reage aos filtros). <b>Breakeven na competência</b> = Margem Contribuição (TCV×margem) cobre o Investimento Total (mídia+FEE) do mês. <b>Payback</b> = Resultado Acumulado ≥ 0 desde o início (jan/2025). TCV = ${TCVM}× mensalidade + implementação. <b>Só o DRE usa TCV</b> — nas outras abas o faturamento é 1 mensalidade + implementação. O TCV de 6 meses é reconhecido no mês do ganho (visão bookings-margin vs custo do mês), não accrual mensal.</div>
+   <div class="sec-desc"><b>Projeto inteiro, todos os canais</b> (não reage aos filtros). <b>⚠️ Âncora: MÊS DO EVENTO (calendário)</b> — lead conta no mês em que foi criado, SAL/demos no mês em que aconteceram, deal no mês do ganho. <b>NÃO é visão safra</b> (essa vive na aba Safra): os leads de um mês não são os que geraram as demos daquele mês, então CPL/CP-SAL/custo-demo daqui divergem — de propósito — dos números por safra. <b>Breakeven na competência</b> = Margem Contribuição (TCV×margem) cobre o Investimento Total (mídia+FEE) do mês. <b>Payback</b> = Resultado Acumulado ≥ 0 desde o início (jan/2025). TCV = ${TCVM}× mensalidade + implementação, reconhecido no mês do ganho — <b>só o DRE usa TCV</b>.</div>
    <div class="tbl-wrap"><table class="dre"><thead><tr>${head}</tr></thead><tbody>${b}</tbody></table></div>
    <div class="note"><b>Receita só registrada a partir de 2026:</b> <code>value_mensalidade</code> está preenchido só nos ganhos de 2026 — os de 2025 vêm zerados, então breakeven/payback de 2025 saem como <span class="muted-n">s/ receita</span> (não é prejuízo, é dado faltando). <b>Backfill da mensalidade de 2025 no CRM corrige o histórico</b> e o Resultado Acumulado passa a refletir o payback real.</div>`;}
+// ---- sort clicável (F5.1): qualquer th dentro de .tbl-wrap ordena a tabela ----
+function sortVal(td){if(!td)return -Infinity;const t=td.textContent.trim();
+  if(!t||t==='—'||t==='·')return -Infinity;
+  const n=parseFloat(t.replace(/R\$\s?/,'').replace(/\./g,'').replace(',','.').replace('%',''));
+  return isNaN(n)?t.toLowerCase():n;}
+document.addEventListener('click',e=>{const th=e.target.closest('.tbl-wrap th');if(!th)return;
+  const tbl=th.closest('table'),tb=tbl&&tbl.tBodies[0];if(!tb)return;
+  const i=[...th.parentNode.children].indexOf(th);
+  const dir=th.dataset.dir==='desc'?'asc':'desc';
+  tbl.querySelectorAll('th').forEach(x=>{delete x.dataset.dir;});th.dataset.dir=dir;
+  [...tb.rows].map(r=>[sortVal(r.cells[i]),r])
+   .sort((a,b)=>{const x=a[0],y=b[0];
+     const c=(typeof x==='string'||typeof y==='string')?String(x).localeCompare(String(y),'pt'):x-y;
+     return dir==='asc'?c:-c;})
+   .forEach(([,r])=>tb.appendChild(r));});
+// ---- filtro de texto do drill (F5.1): filtra as linhas EXIBIDAS da tela Mídia ----
+function tfilt(inp){const q=inp.value.trim().toLowerCase();
+  document.querySelectorAll('#scr-midia .stpane table tbody tr').forEach(r=>{
+    r.style.display=!q||r.textContent.toLowerCase().includes(q)?'':'none';});}
+
+// ---- Dimensões (F5.1): breakdowns mensais do flow (P.brk) ----
+const BRK=P.brk||null;
+const GEN_LBL={f:'Fem',m:'Masc',u:'—'};
+function brkMeses(){if(!BRK)return new Set();const a=FILT.ini.slice(0,7),b=FILT.fim.slice(0,7);
+  const s=new Set();BRK.meses.forEach((m,i)=>{if(m>=a&&m<=b)s.add(i);});return s;}
+function brkAgg(rows,keyFn,o){const ms=brkMeses();const m={};
+  rows.forEach(r=>{if(!ms.has(r[o.mi]))return;const k=keyFn(r);if(k==null||k==='')return;
+    const a=m[k]||(m[k]={nome:k,inv:0,impr:0,clk:0,conv:0});
+    a.inv+=r[o.inv]||0;a.impr+=r[o.impr]||0;a.clk+=r[o.clk]||0;if(o.conv!=null)a.conv+=r[o.conv]||0;});
+  return Object.values(m).sort((x,y)=>y.inv-x.inv);}
+function dimsTable(titulo,arr,temConv,tip){if(!arr.length)return '';
+  return `<div class="chartbox"><h4>${titulo}${tip?` <span class="qask">— ${tip}</span>`:''}</h4><div class="tbl-wrap"><table><thead><tr>
+   <th></th><th>Invest.</th><th>Impr.</th><th>Cliques</th><th>CTR</th>${temConv?'<th>Conv</th><th>Custo/conv</th>':''}</tr></thead><tbody>${
+   arr.slice(0,14).map(r=>`<tr><td title="${esc(r.nome)}">${esc(tr(r.nome,26))}</td><td>${fM(r.inv)}</td><td>${fI(r.impr)}</td><td>${fI(r.clk)}</td><td>${(r.impr&&r.clk<=r.impr)?fP(r.clk/r.impr,2):'—'}</td>${temConv?`<td>${fR(r.conv)}</td><td>${fM(r.conv>=1?r.inv/r.conv:null)}</td>`:''}</tr>`).join('')
+  }</tbody></table></div></div>`;}
+// F5.2: UMA tabela full-width com seletor de dimensão + funil ESTIMADO (rateio)
+// nas dimensões de entrega Meta; Google traz conversões reais; hora sem funil
+// (o grão é campanha, não anúncio — rateio não aplica).
+let DIMV='geo-meta';
+function setDimv(v){DIMV=v;renderAll();}
+const DIMV_OPTS=[['geo-meta','Geografia Meta'],['geo-google','Geografia Google'],['cidades','Cidades (Google)'],
+                 ['idade','Idade'],['genero','Gênero'],['device','Device'],['hora','Hora do dia']];
+function dimvTable(){
+  const est=v=>v>0.05?fR(v):'<span class="muted-n">·</span>';
+  const head=(extra)=>`<th></th><th>Invest.</th><th>Impr.</th><th>Cliques</th><th>CTR</th>${extra}`;
+  const rowBase=r=>`<td title="${esc(r.nome)}">${esc(tr(r.nome,36))}</td><td>${fM(r.inv)}</td><td>${fI(r.impr)}</td><td>${fI(r.clk)}</td><td>${(r.impr&&r.clk<=r.impr)?fP(r.clk/r.impr,2):'—'}</td>`;
+  const wrap=(h,b)=>`<div class="tbl-wrap"><table><thead><tr>${h}</tr></thead><tbody>${b}</tbody></table></div>`;
+  if(DIMV==='geo-google'){
+    const rows=deliveryAgg(BRK.ggeo.rows,{mi:1,inv:3,impr:4,clk:5,conv:6},r=>BRK.ggeo.regs[r[2]],gFunil());
+    return wrap(head('<th>Conv</th><th>SAL*</th><th>CP-SAL*</th><th>D.ag*</th><th>D.real*</th><th>Ganho*</th><th>Fat*</th>'),
+      rows.slice(0,20).map(r=>`<tr>${rowBase(r)}<td>${fR(r.conv)}</td><td>${est(r.sal)}</td><td>${fM(r.sal>0.05?r.inv/r.sal:null)}</td><td>${est(r.dag)}</td><td>${est(r.dre)}</td><td>${est(r.cli)}</td><td>${r.fat>1?fM(r.fat):'<span class="muted-n">·</span>'}</td></tr>`).join(''))
+      +'<div class="note" style="margin-top:8px">Funil* Google: rateio por <b>campanha</b> (a API não desce de campanha no geo) — grão mais grosso que o rateio por anúncio do Meta.</div>';}
+  if(DIMV==='cidades'){
+    return wrap('<th>Cidade</th><th>Região</th><th>Invest.</th><th>Impr.</th><th>Cliques</th><th>Conv</th><th>SAL*</th><th>CP-SAL*</th><th>D.real*</th><th>Ganho*</th><th>Fat*</th>',
+      BRK.gcid.rows.slice(0,25).map(r=>`<tr><td>${esc(r[0])}</td><td>${esc(tr(r[1],22))}</td><td>${fM(r[2])}</td><td>${fI(r[3])}</td><td>${fI(r[4])}</td><td>${fR(r[5])}</td><td>${est(r[7])}</td><td>${fM(r[7]>0.05?r[2]/r[7]:null)}</td><td>${est(r[9])}</td><td>${est(r[10])}</td><td>${r[11]>1?fM(r[11]):'<span class="muted-n">·</span>'}</td></tr>`).join(''))
+      +'<div class="note" style="margin-top:8px">Cidades: todo o período (independe do filtro de data). Funil* por rateio de campanha.</div>';}
+  if(DIMV==='hora'){
+    const hh=deliveryAgg(BRK.hora.rows,{mi:1,inv:3,impr:4,clk:5},r=>r[2]+'h');hh.sort((a,b)=>parseInt(a.nome)-parseInt(b.nome));
+    const hmax=Math.max(...hh.map(h=>h.inv),1);
+    return wrap('<th>Hora</th><th>Invest.</th><th>Cliques</th><th>CTR</th><th>SAL*</th><th>CP-SAL*</th><th>D.real*</th>',
+      hh.map(h=>`<tr><td>${h.nome}</td><td>${fM(h.inv)}<i class="ibar" style="width:${Math.max(2,h.inv/hmax*70).toFixed(0)}px"></i></td><td>${fI(h.clk)}</td><td>${(h.impr&&h.clk<=h.impr)?fP(h.clk/h.impr,2):'—'}</td><td>${est(h.sal)}</td><td>${fM(h.sal>0.05?h.inv/h.sal:null)}</td><td>${est(h.dre)}</td></tr>`).join(''))
+      +'<div class="note" style="margin-top:8px">Hora por <b>anúncio</b> (F7.2): funil* = evento do ad no mês × share do invest naquela hora — estima o turno que gera SAL/demo, não o horário do evento em si.</div>';}
+  const src=DIMV==='geo-meta'?[BRK.geo.rows,{mi:1,inv:3,impr:4,clk:5},r=>BRK.geo.regs[r[2]]]
+    :DIMV==='idade'?[BRK.demo.rows,{mi:1,inv:4,impr:5,clk:6},r=>BRK.demo.ages[r[2]]]
+    :DIMV==='genero'?[BRK.demo.rows,{mi:1,inv:4,impr:5,clk:6},r=>GEN_LBL[r[3]]||'—']
+    :[BRK.dev.rows,{mi:1,inv:3,impr:4,clk:5},r=>BRK.dev.devs[r[2]]];
+  const rows=deliveryAgg(src[0],src[1],src[2]);
+  return wrap(head('<th>Leads*</th><th>SAL*</th><th>CP-SAL*</th><th>D.real*</th>'),
+    rows.slice(0,20).map(r=>`<tr>${rowBase(r)}<td>${est(r.lead)}</td><td>${est(r.sal)}</td><td>${fM(r.sal>0.05?r.inv/r.sal:null)}</td><td>${est(r.dre)}</td></tr>`).join(''));}
+function rDims(){
+  if(!BRK)return `<h2 class="sec">Dimensões</h2><div class="note">Sem breakdowns do flow ainda — a extração roda às <b>segundas 07:00</b> (raw/flow-*.csv). Depois da 1ª rodada esta tela popula sozinha.</div>`;
+  const subtabs=DIMV_OPTS.map(([k,l])=>`<button class="stbtn ${DIMV===k?'on':''}" onclick="setDimv('${k}')">${l}</button>`).join('');
+  return `<h2 class="sec">Dimensões <span class="qask">— onde, pra quem e quando o anúncio roda?</span></h2>
+   <div class="sec-desc"><b>Exibição mensal</b> (o filtro de período casa por mês cheio; o raw guarda o grão DIA) · fonte: extração do flow às segundas. Colunas com <b>*</b> = <b>funil/faturamento estimado por rateio</b> do investimento (nenhuma API dá conversão por breakdown): Meta rateia por <b>anúncio</b>, Google por <b>campanha</b> (geo não desce de campanha na API); a coluna Conv do Google é real da plataforma. Cabeçalhos ordenam. Respeita Período + Canal.</div>
+   <div class="subtabs">${subtabs}</div>
+   ${dimvTable()}
+   <div class="note">Grão fino (ad×mês×dimensão, cidade a cidade, campanha×hora) vive em <code>raw/flow-*.csv</code>; o diário pleno segue no warehouse do flow (ad-hoc via MCP). Funil por dimensão do lado do CRM chega quando a aba <code>leads</code> popular (geo do form + device por user_agent).</div>`;}
+
+// ---- rateio (F5.2): funil por (ad×mês) distribuído pela share de investimento ----
+// da dimensão de entrega. A API Meta não dá conversão por breakdown — o funil
+// por região/idade/gênero/device é ESTIMADO: evento(ad,mês) × share_spend(dim).
+function brkFunil(){const m={};(BRK&&BRK.funil||[]).forEach(r=>{m[r[0]+'|'+r[1]]=r;});return m;}
+function gFunil(){const m={};(BRK&&BRK.gfun||[]).forEach(r=>{m[r[0]+'|'+r[1]]=r;});return m;}
+function deliveryAgg(rows,o,keyFn,FN){const ms=brkMeses();FN=FN||brkFunil();
+  const den={};rows.forEach(r=>{if(!ms.has(r[o.mi]))return;const k=r[0]+'|'+r[o.mi];den[k]=(den[k]||0)+(r[o.inv]||0);});
+  const m={};
+  rows.forEach(r=>{if(!ms.has(r[o.mi]))return;const k=keyFn(r);if(k==null||k==='')return;
+    const a=m[k]||(m[k]={nome:k,inv:0,impr:0,clk:0,conv:0,lead:0,sal:0,dag:0,dre:0,cli:0,fat:0});
+    const inv=r[o.inv]||0;a.inv+=inv;a.impr+=r[o.impr]||0;a.clk+=r[o.clk]||0;if(o.conv!=null)a.conv+=r[o.conv]||0;
+    const fk2=r[0]+'|'+r[o.mi],fn=FN[fk2],d=den[fk2];
+    if(fn&&d>0){const sh=inv/d;a.lead+=fn[2]*sh;a.sal+=fn[3]*sh;a.dag+=fn[4]*sh;a.dre+=fn[5]*sh;a.cli+=fn[6]*sh;a.fat+=(fn[7]||0)*sh;}});
+  return Object.values(m).sort((x,y)=>y.inv-x.inv);}
+
+// ---- Cruzamento único (F5.2): mensagem × público/entrega × MÉTRICA escolhida ----
+let CRZ={lin:'h',col:'publico',met:'sal'};
+function setCrz(k,v){CRZ[k]=v;renderAll();}
+const CRZ_LIN=[['c','Consciência'],['h','Gancho'],['a','Avatar'],['f','Formato']];
+const CRZ_COL=[['publico','Público (conjunto)'],['tipo','Tipo de público'],['funil','Funil (COLD/WARM/HOT)'],['temp','Temperatura da campanha'],['consciencia','Consciência'],['gancho','Gancho'],
+               ['regiao','Região (entrega*)'],['idade','Idade (entrega*)'],['genero','Gênero (entrega*)'],['device','Device (entrega*)']];
+const CRZ_MET=[['inv','Investimento'],['lead','Leads'],['sal','SAL'],['dag','Demo agendada'],['dre','Demo realizada'],['cli','Clientes'],['cp_sal','CP-SAL'],['cp_dre','Custo/demo real.']];
+function crzCell(c,met){if(!c)return null;
+  if(met==='cp_sal')return c.sal>0.05?c.inv/c.sal:null;
+  if(met==='cp_dre')return c.dre>0.05?c.inv/c.dre:null;
+  return c[met];}
+function crzFmt(v,met){if(v==null)return '<span class="muted-n">·</span>';
+  return (met==='inv'||met==='cp_sal'||met==='cp_dre')?fM(v):(Number.isInteger(v)?fI(v):fR(v));}
+function crzSection(){
+  const A=i=>DIM.anun[i]||{};
+  const isDeliv=['regiao','idade','genero','device'].includes(CRZ.col);
+  const cell={},colTot={};
+  const add=(lin,col,vals)=>{if(!lin||col==null||col==='')return;
+    colTot[col]=(colTot[col]||0)+vals.inv;
+    const k=lin+'|'+col;const c=cell[k]||(cell[k]={inv:0,lead:0,sal:0,dag:0,dre:0,cli:0});
+    for(const m in vals)c[m]+=vals[m];};
+  if(isDeliv){
+    if(!BRK)return '<div class="note">Sem breakdowns do flow ainda (extração das segundas).</div>';
+    const AT=i=>BRK.attrs[i]||{};
+    const src=CRZ.col==='regiao'?[BRK.geo.rows,{mi:1,inv:3,impr:4,clk:5},r=>BRK.geo.regs[r[2]]]
+      :CRZ.col==='idade'?[BRK.demo.rows,{mi:1,inv:4,impr:5,clk:6},r=>BRK.demo.ages[r[2]]]
+      :CRZ.col==='genero'?[BRK.demo.rows,{mi:1,inv:4,impr:5,clk:6},r=>GEN_LBL[r[3]]||'—']
+      :[BRK.dev.rows,{mi:1,inv:3,impr:4,clk:5},r=>BRK.dev.devs[r[2]]];
+    const ms=brkMeses(),FN=brkFunil(),o=src[1];
+    const den={};src[0].forEach(r=>{if(!ms.has(r[o.mi]))return;const k=r[0]+'|'+r[o.mi];den[k]=(den[k]||0)+(r[o.inv]||0);});
+    src[0].forEach(r=>{if(!ms.has(r[o.mi]))return;
+      const lin=AT(r[0])[CRZ.lin];if(!lin)return;
+      const inv=r[o.inv]||0,fk2=r[0]+'|'+r[o.mi],fn=FN[fk2],d=den[fk2],sh=(fn&&d>0)?inv/d:0;
+      add(lin,src[2](r),{inv,lead:fn?fn[2]*sh:0,sal:fn?fn[3]*sh:0,dag:fn?fn[4]*sh:0,dre:fn?fn[5]*sh:0,cli:fn?fn[6]*sh:0});});
+  }else{
+    const J=i=>DIM.conj[i]||{},C2=i=>DIM.camp[i]||{};
+    const colOf=c=>CRZ.col==='publico'?(J(c.ji).publico||null):CRZ.col==='tipo'?(J(c.ji).tipo||null)
+      :CRZ.col==='funil'?(J(c.ji).funil||null):CRZ.col==='temp'?(C2(c.ci).temp||null)
+      :CRZ.col==='consciencia'?(A(c.ai).consciencia?(CONSC_LBL[A(c.ai).consciencia]||A(c.ai).consciencia):null)
+      :(A(c.ai).gancho||null);
+    dbRows().forEach(c=>{const lin=A(c.ai)[{c:'consciencia',h:'gancho',a:'avatar',f:'formato'}[CRZ.lin]];
+      add(lin,colOf(c),{inv:c.inv,lead:c.lead,sal:c.sal,dag:c.demo_ag,dre:c.demo_re,cli:c.cli});});}
+  const cols=Object.entries(colTot).sort((a,b)=>b[1]-a[1]).slice(0,9).map(([k])=>k);
+  const lins=[...new Set(Object.keys(cell).map(k=>k.split('|')[0]))].sort();
+  const lbl=CRZ.lin==='c'?(v=>CONSC_LBL[v]||v):(v=>v);
+  const body=lins.map(l=>`<tr><td><b>${esc(lbl(l))}</b></td>${cols.map(cv=>`<td>${crzFmt(crzCell(cell[l+'|'+cv],CRZ.met),CRZ.met)}</td>`).join('')}</tr>`).join('');
+  const sel=(k,opts)=>`<select class="dbxsel" onchange="setCrz('${k}',this.value)">${opts.map(([v,l])=>`<option value="${v}" ${CRZ[k]===v?'selected':''}>${l}</option>`).join('')}</select>`;
+  return `<h2 class="sec">Cruzamento <span class="qask">— a mensagem certa pro público certo?</span></h2>
+   <div class="sec-desc">Linha = atributo da mensagem · coluna = público ou entrega · célula = <b>a métrica escolhida</b>. Colunas de público/atributo usam o <b>funil real</b> (reconciliado); colunas de <b>entrega*</b> (região/idade/gênero/device) usam <b>funil estimado por rateio</b> do investimento (grão mensal — a API Meta não dá conversão por breakdown). Respeita Período + Canal.</div>
+   <div style="display:flex;gap:10px;margin:6px 0 10px;flex-wrap:wrap">${sel('lin',CRZ_LIN)} <span style="align-self:center;color:var(--muted)">×</span> ${sel('col',CRZ_COL)} <span style="align-self:center;color:var(--muted)">·</span> ${sel('met',CRZ_MET)}</div>
+   <div class="tbl-wrap"><table><thead><tr><th></th>${cols.map(c=>`<th>${esc(tr(c,16))}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div>`;}
+
+// ---- Biblioteca de criativos (F5.2): cards com preview + popup ----
+const LIB=P.lib||null;
+const ANIDX=(()=>{const m={};CA.forEach((n,i)=>m[n]=i);return m;})();
+let LIBSORT='sal';
+function setLibSort(v){LIBSORT=v;renderAll();}
+function rCriativos(){
+  if(!LIB)return '<h2 class="sec">Criativos</h2><div class="note">Sem assets do flow ainda — a extração roda às segundas.</div>';
+  const m={};dbRows().forEach(c=>{const a=m[c.ai]||(m[c.ai]={ai:c.ai,nome:c.anun,inv:0,lead:0,sal:0,dre:0,cli:0});
+    a.inv+=c.inv;a.lead+=c.lead;a.sal+=c.sal;a.dre+=c.demo_re;a.cli+=c.cli;});
+  const cards=Object.values(m).filter(a=>a.inv>0);
+  const key={sal:a=>a.sal,inv:a=>a.inv,cpsal:a=>a.sal?-a.inv/a.sal:-1e12,dre:a=>a.dre,cli:a=>a.cli}[LIBSORT];
+  cards.sort((x,y)=>key(y)-key(x));
+  const open=!!EXP['lib'];const shown=open?cards:cards.slice(0,24);
+  const html=shown.map(a=>{const L=LIB[a.ai]||0;const img=L&&L[0];
+    return `<div class="libcard" onclick="showCrt(${a.ai})">
+      ${img?`<img loading="lazy" src="${esc(img)}" onerror="this.outerHTML='<div class=&quot;libph&quot;>sem preview</div>'">`:`<div class="libph">sem preview</div>`}
+      <div class="libinfo"><div class="libname" title="${esc(a.nome)}">${esc(tr(a.nome,46))}</div>
+      <div class="libm">${fM(a.inv)} · <b>${fI(a.sal)} SAL</b> · CP ${fM(a.sal?a.inv/a.sal:null)}${a.dre?` · ${fI(a.dre)} demo`:''}${a.cli?` · ${fI(a.cli)} cli`:''}</div></div></div>`;}).join('');
+  const sel=`<select class="dbxsel" onchange="setLibSort(this.value)">${[['sal','mais SAL'],['inv','mais investimento'],['cpsal','melhor CP-SAL'],['dre','mais demos'],['cli','mais clientes']].map(([v,l])=>`<option value="${v}" ${LIBSORT===v?'selected':''}>${l}</option>`).join('')}</select>`;
+  return `<h2 class="sec">Biblioteca de criativos <span class="qask">— o que roda e o que performa?</span></h2>
+   <div class="sec-desc">Agrupado por <b>nome de anúncio</b> (mesmo criativo em N conjuntos/placements = 1 card) · métricas do período/canal filtrados · preview via flow (URLs do CDN renovam na extração das segundas). Clique no card pra ampliar com a copy. Ordenar por ${sel}</div>
+   <div class="libgrid">${html||'<div class="empty">Nenhum anúncio com investimento no período.</div>'}</div>
+   ${cards.length>24?`<button class="expbtn" onclick="togExp('lib')">${open?'▲ mostrar só top 24':'▼ mostrar todos ('+cards.length+')'}</button>`:''}`;}
+function showCrt(ai){if(ai==null)return;const L=(LIB&&LIB[ai])||0;const nome=CA[ai]||'';
+  const m={inv:0,lead:0,sal:0,dre:0,cli:0};dbRows().forEach(c=>{if(c.ai===ai){m.inv+=c.inv;m.lead+=c.lead;m.sal+=c.sal;m.dre+=c.demo_re;m.cli+=c.cli;}});
+  document.getElementById('crtBody').innerHTML=
+    (L&&L[0]?`<img src="${esc(L[0])}" onerror="this.style.display='none'">`:'<div class="libph" style="height:180px">sem preview (asset não sincronizado)</div>')+
+    `<div class="crtname">${esc(nome)}</div>`+
+    (L&&L[1]?`<div class="crtline"><b>Headline:</b> ${esc(L[1])}</div>`:'')+
+    (L&&L[2]?`<div class="crtline"><b>CTA:</b> ${esc(L[2])}</div>`:'')+
+    (L&&L[3]?`<div class="crtline crtcopy">${esc(L[3])}</div>`:'')+
+    `<div class="crtline" style="margin-top:9px;border-top:1px solid var(--border);padding-top:9px"><b>No período:</b> ${fM(m.inv)} · ${fI(m.lead)} leads · ${fI(m.sal)} SAL (CP ${fM(m.sal?m.inv/m.sal:null)}) · ${fI(m.dre)} demos · ${fI(m.cli)} clientes</div>`;
+  document.getElementById('crtModal').classList.add('on');}
+function closeCrt(e){if(!e||e.target.id==='crtModal'||e.target.classList.contains('crtx'))document.getElementById('crtModal').classList.remove('on');}
+
+// ---- Debriefing de criativos (F5): funil reconciliado agregado por ATRIBUTO ----
+// da nomenclatura (P.dim — parseado pela taxonomia gia-v2 de 10-fundacao/taxonomia.yml).
+// Cobertura parcial por design: gerações legadas (pré-taxonomia) não têm atributos.
+const CONSC_LBL={UNC:'Unaware',PRB:'Problema',SOL:'Solução',PRO:'Produto',MIX:'Mix (DCO)'};
+const FUNIL_LBL={COLD:'Frio (COLD)',WARM:'Morno (WARM)',HOT:'Quente (HOT)'};
+function dbRows(){return CAMP.filter(c=>cMatch(c.canal)&&inR(c.data,FILT.ini,FILT.fim));}
+function dbAgg(keyFn){const m={};dbRows().forEach(c=>{const k=keyFn(c);if(!k)return;
+  const a=m[k]||(m[k]={nome:k,inv:0,lead:0,sal:0,rr:0,cli:0});
+  a.inv+=c.inv;a.lead+=c.lead;a.sal+=c.sal;a.rr+=c.demo_re;a.cli+=c.cli;});
+  return Object.values(m).sort((x,y)=>y.inv-x.inv);}
+function dbTable(id,titulo,keyFn,tip){const rows=dbAgg(keyFn);if(!rows.length)return '<div class="empty">Sem dado com este atributo no período (geração legada não tem atributos).</div>';
+  const ti=rows.reduce((s,r)=>s+r.inv,0),ts=rows.reduce((s,r)=>s+r.sal,0);const bl=ts?ti/ts:null;
+  const N=12;
+  const tbl=`<div class="tbl-wrap"><table><thead><tr>
+    <th></th><th>Invest.</th><th>Leads</th><th>CPL</th><th>SAL</th><th>CP-SAL</th><th>D.real</th><th>CP-DR</th><th>Cli</th></tr></thead><tbody>${
+    expRowsDb(id,rows,bl,N)}</tbody></table></div>${rows.length>N?`<button class="expbtn" onclick="togExp('${id}')">${EXP[id]?'▲ mostrar só top '+N:'▼ mostrar todas ('+rows.length+')'}</button>`:''}`;
+  return titulo?`<div class="chartbox"><h4>${titulo}${tip?` <span class="qask">— ${tip}</span>`:''}</h4>${tbl}</div>`:tbl;}
+function expRowsDb(id,rows,bl,N=12){return (EXP[id]?rows:rows.slice(0,N)).map(r=>{
+  const cps=r.sal?r.inv/r.sal:null,st=cps==null?'':(bl&&cps<=bl?' class="s-ok"':(bl&&cps>bl*1.5?' class="s-bad"':''));
+  return `<tr><td title="${esc(r.nome)}">${esc(tr(r.nome,40))}</td><td>${fM(r.inv)}</td><td>${fI(r.lead)}</td><td>${fM(r.lead?r.inv/r.lead:null)}</td><td>${fI(r.sal)}</td><td${st}>${fM(cps)}</td><td>${fI(r.rr)}</td><td>${fM(r.rr?r.inv/r.rr:null)}</td><td>${fI(r.cli)}</td></tr>`;}).join('');}
+// F5.2: 1 tabela FULL-WIDTH por grupo, com subtabs escolhendo a dimensão
+// (acaba com a grade de tabelinhas espremidas com scroll horizontal).
+let DBSEL={msg:'consc',pub:'publico'};
+function setDbsel(k,v){DBSEL[k]=v;renderAll();}
+const DB_MSG=[['consc','Consciência'],['gancho','Gancho'],['avatar','Avatar'],['formato','Formato'],['tema','Tema']];
+const DB_PUB=[['publico','Público'],['tipo','Tipo de público'],['funil','Funil'],['temp','Temperatura'],['obj','Evento otimizado']];
+function dbKey(k){const A=i=>DIM.anun[i]||{},J=i=>DIM.conj[i]||{},C2=i=>DIM.camp[i]||{};
+  return {consc:c=>{const a=A(c.ai);return a.consciencia?(CONSC_LBL[a.consciencia]||a.consciencia):null;},
+    gancho:c=>A(c.ai).gancho||null, avatar:c=>A(c.ai).avatar||null, formato:c=>A(c.ai).formato||null,
+    tema:c=>{const a=A(c.ai);return a.narrativa||a.variacao||null;},
+    publico:c=>J(c.ji).publico||null, tipo:c=>J(c.ji).tipo||null,
+    funil:c=>{const j=J(c.ji);return j.funil?(FUNIL_LBL[j.funil]||j.funil):null;},
+    temp:c=>C2(c.ci).temp||null, obj:c=>C2(c.ci).obj||null}[k];}
+function dbGroup(id,grupo,opts,selKey){
+  const subtabs=opts.map(([k,l])=>`<button class="stbtn ${DBSEL[selKey]===k?'on':''}" onclick="setDbsel('${selKey}','${k}')">${l}</button>`).join('');
+  return `<h2 class="sec">${grupo}</h2>
+   <div class="subtabs">${subtabs}</div>
+   ${dbTable(id+DBSEL[selKey],'',dbKey(DBSEL[selKey]))}`;}
+function rDebrief(){
+  if(!DIM)return '<div class="note">Payload sem bloco <b>dim</b> — regere o monitor.</div>';
+  const A=i=>DIM.anun[i]||{};
+  const rows=dbRows();const tot=rows.reduce((s,c)=>s+c.inv,0);
+  const cov=rows.reduce((s,c)=>s+((A(c.ai).geracao&&A(c.ai).geracao!=='legado')?c.inv:0),0);
+  return `<h2 class="sec">Debriefing de criativos <span class="qask">— qual mensagem vende?</span></h2>
+   <div class="sec-desc">Funil <b>reconciliado</b> agregado pelos <b>atributos da nomenclatura</b> (taxonomia gia-v2 — <code>10-fundacao/taxonomia.yml</code>). <b>Cobertura: ${fP(tot?cov/tot:0)} do investimento do período tem atributos</b> — o resto é geração legada (pré-taxonomia, antes de mai/2026). CP-SAL <span class="s-ok">verde</span> = melhor que o blended; <span class="s-bad">vermelho</span> = &gt;1,5×. Cabeçalhos ordenam. Respeita Período + Canal.</div>
+   ${dbGroup('dbm','Mensagem',DB_MSG,'msg')}
+   ${dbGroup('dbp','Público &amp; segmentação',DB_PUB,'pub')}
+   ${crzSection()}
+   <div class="note"><b>Loop de qualidade:</b> nome fora do padrão não entra aqui — aparece no <code>derivado/qa-report.json</code> e é tarefa de correção do media-buyer (convenção em <code>10-fundacao/taxonomia.yml</code>). Atributos por anúncio (com copy/CTA do flow): <code>derivado/dim-criativo.csv</code>.</div>`;}
 // charts
 let CH={};
 function destroyCharts(){Object.values(CH).forEach(c=>{try{c.destroy();}catch(e){}});CH={};}
@@ -883,6 +1160,9 @@ function renderAll(){destroyCharts();
   document.getElementById('scr-quals').innerHTML=rQuals();
   document.getElementById('scr-safra').innerHTML=rSafra();
   document.getElementById('scr-midia').innerHTML=rMidia();
+  document.getElementById('scr-lib').innerHTML=rCriativos();
+  document.getElementById('scr-debrief').innerHTML=rDebrief();
+  document.getElementById('scr-dims').innerHTML=rDims();
   document.getElementById('scr-mensal').innerHTML=rMensal();
   // só os subtabs COM data-st (drill da Mídia) — os Qualificadores usam a mesma
   // classe visual mas onclick inline próprio (setQ); .onclick aqui sobrescreveria
@@ -987,6 +1267,9 @@ def render(P):
      <button class="tab" data-scr="scr-quals">Qualificadores</button>
      <button class="tab" data-scr="scr-safra">Safra</button>
      <button class="tab" data-scr="scr-midia">Mídia</button>
+     <button class="tab" data-scr="scr-lib">Criativos</button>
+     <button class="tab" data-scr="scr-debrief">Debriefing</button>
+     <button class="tab" data-scr="scr-dims">Dimensões</button>
      <button class="tab" data-scr="scr-mensal">Mensal / DRE</button>
    </nav>
    <div class="main">
@@ -996,9 +1279,13 @@ def render(P):
      <section class="screen" id="scr-quals"></section>
      <section class="screen" id="scr-safra"></section>
      <section class="screen" id="scr-midia"></section>
+     <section class="screen" id="scr-lib"></section>
+     <section class="screen" id="scr-debrief"></section>
+     <section class="screen" id="scr-dims"></section>
      <section class="screen" id="scr-mensal"></section>
    </div>
  </div>
+ <div id="crtModal" onclick="closeCrt(event)"><div class="crtbox"><button class="crtx" onclick="closeCrt()">✕</button><div id="crtBody"></div></div></div>
  <footer>
    <div>Monitor · Sigo ERP · fonte: CRM (verdade) + campanhas (join ad_id, reconciliado) · metas vigência __VIGL__ · gerado __GERADO__</div>
    <div>Growth IA Ops v2.0 · V4 Colli&amp;Co</div>

@@ -1,5 +1,4 @@
 # contrato-cockpit.yml — Grupo Colina (Colina dos Ipês)
-# NB: valores numéricos de metas/receita são FICTÍCIOS (sanitizados pra publicação).
 # Único lugar onde mora o que varia por cliente. Os blocos `metas` e `receita` são
 # lidos EM RUNTIME pelo gerador/renderer — trocar metas/quarter/valores = editar só
 # aqui, sem tocar no .py.
@@ -104,11 +103,11 @@ periodo:
 metas:
   base: mensal
   por_bu:
-    "Plano SP": {investimento: 60000, mql: 1000, clientes_safra: 100, clientes_geral: 160}
-    "Jazigo":   {investimento: 8000,  mql: 40,   clientes_safra: 2,   clientes_geral: 3}
-    "Plano RJ": {investimento: 5000,  mql: 50,   clientes_safra: 3,   clientes_geral: 4}
-    "Serviços": {investimento: 4000,  mql: 80,   clientes_safra: 8,   clientes_geral: 9}
-  # Geral (soma): investimento 77000 · mql 1170 · clientes_safra 113 · clientes_geral 176
+    "Plano SP": {investimento: 81000, mql: 1397, clientes_safra: 140, clientes_geral: 231}
+    "Jazigo":   {investimento: 10000, mql: 49,   clientes_safra: 2,   clientes_geral: 3}
+    "Plano RJ": {investimento: 6000,  mql: 61,   clientes_safra: 3,   clientes_geral: 4}
+    "Serviços": {investimento: 4000,  mql: 100,  clientes_safra: 10,  clientes_geral: 11}
+  # Geral (soma): investimento 101000 · mql 1606 · clientes_safra 154 · clientes_geral 250
 
 # --- MODELO DE RECEITA (PREMISSA · LIDO EM RUNTIME) ------------------------------------
 # total_value está VAZIO em 100% dos ganhos do CRM (backfill growthpack pendente) →
@@ -121,10 +120,10 @@ metas:
 receita:
   fonte: premissa
   por_bu:
-    "Plano SP": {modelo: recorrente, mensalidade: 100, ltv_meses: 18}   # LTV R$ 1.800
-    "Plano RJ": {modelo: recorrente, mensalidade: 70,  ltv_meses: 18}   # LTV R$ 1.260
-    "Jazigo":   {modelo: tcv, valor: 7000}                              # TCV médio contrato
-    "Serviços": {modelo: tcv, valor: 9000}                              # ticket médio one-time
+    "Plano SP": {modelo: recorrente, mensalidade: 110, ltv_meses: 18}   # LTV R$ 1.980
+    "Plano RJ": {modelo: recorrente, mensalidade: 75,  ltv_meses: 18}   # LTV R$ 1.350
+    "Jazigo":   {modelo: tcv, valor: 8000}                              # TCV médio contrato
+    "Serviços": {modelo: tcv, valor: 10000}                             # ticket médio one-time
 
 # --- Payback (só mídia — decisão operador 2026-07-02, sem FEE/DRE de assessoria) ---
 # Safra = mês do win. Receita acumulada: recorrente = n × mensalidade × meses decorridos
